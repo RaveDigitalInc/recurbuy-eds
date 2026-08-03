@@ -79,3 +79,9 @@
     flex-basis: auto;
   }
 }
+
+/* Cart Specific Attribute overrides (optional) */
+.dropin-cart-item .custom-attrs__list {
+    margin-top: var(--spacing-xxsmall);
+    font-size: var(--type-body-3-font-size, 12px);
+  }

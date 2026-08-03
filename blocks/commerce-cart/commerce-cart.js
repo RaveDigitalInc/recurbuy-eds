@@ -207,8 +207,8 @@ export default async function decorate(block) {
             wrapper,
             ctx.item?.productAttributes ?? [],
             'cart',
+            { sku: ctx.item?.sku },
           );
-          wrapper.textContent = `SKU: ${ctx.item?.sku}`;
           ctx.appendChild(wrapper);
         },
 

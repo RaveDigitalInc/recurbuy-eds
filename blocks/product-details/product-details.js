@@ -73,6 +73,7 @@ export default async function decorate(block) {
         <div class="product-details__price"></div>
         <div class="product-details__gallery"></div>
         <div class="product-details__short-description"></div>
+        <div class="product-details__subscription"></div>
         <div class="product-details__configuration">
           <div class="product-details__options"></div>
           <div class="product-details__quantity"></div>
@@ -194,8 +195,14 @@ export default async function decorate(block) {
       slots: {
         Attributes: (ctx) => {
           const wrapper = document.createElement('div');
-          renderCustomAttributes(wrapper, ctx.data?.attributes ?? [], 'pdp');
-          wrapper.textContent = `SKU: ${ctx.data?.sku}`;
+          wrapper.className = 'product-details__custom-attributes-wrapper';
+
+          const attributesData = ctx.data?.attributes ?? [];
+          const skuData = ctx.data?.sku;
+
+          // Рендерим атрибуты вместе со SKU, не перезаписывая innerHTML/textContent
+          renderCustomAttributes(wrapper, attributesData, 'pdp', { sku: skuData });
+
           ctx.appendChild(wrapper);
         },
       },
