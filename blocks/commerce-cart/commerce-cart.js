@@ -31,6 +31,7 @@ import createMiniPDP from '../commerce-mini-pdp/commerce-mini-pdp.js';
 // Initializers
 import '../../scripts/initializers/cart.js';
 import '../../scripts/initializers/wishlist.js';
+import { renderCustomAttributes } from '../../scripts/helpers/custom-attributes.js';
 
 import { readBlockConfig } from '../../scripts/aem.js';
 import { rootLink, fetchPlaceholders } from '../../scripts/commerce.js';
@@ -198,6 +199,17 @@ export default async function decorate(block) {
               height: defaultImageProps.height,
             },
           });
+        },
+
+        ProductAttributes: (ctx) => {
+          const wrapper = document.createElement('div');
+          renderCustomAttributes(
+            wrapper,
+            ctx.item?.productAttributes ?? [],
+            'cart',
+          );
+          wrapper.textContent = `SKU: ${ctx.item?.sku}`;
+          ctx.appendChild(wrapper);
         },
 
         Footer: (ctx) => {

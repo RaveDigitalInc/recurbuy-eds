@@ -35,6 +35,7 @@ import {
 import { IMAGES_SIZES } from '../../scripts/initializers/pdp.js';
 import '../../scripts/initializers/cart.js';
 import '../../scripts/initializers/wishlist.js';
+import { renderCustomAttributes } from '../../scripts/helpers/custom-attributes.js';
 
 // Function to update the Add to Cart button text
 function updateAddToCartButtonText(addToCartInstance, inCart, labels) {
@@ -189,7 +190,16 @@ export default async function decorate(block) {
     pdpRendered.render(ProductDescription, {})($description),
 
     // Attributes
-    pdpRendered.render(ProductAttributes, {})($attributes),
+    pdpRendered.render(ProductAttributes, {
+      slots: {
+        Attributes: (ctx) => {
+          const wrapper = document.createElement('div');
+          renderCustomAttributes(wrapper, ctx.data?.attributes ?? [], 'pdp');
+          wrapper.textContent = `SKU: ${ctx.data?.sku}`;
+          ctx.appendChild(wrapper);
+        },
+      },
+    })($attributes),
 
     // Wishlist button - WishlistToggle Container
     wishlistRender.render(WishlistToggle, {

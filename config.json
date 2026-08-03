@@ -3,6 +3,8 @@
     "default": {
       "commerce-core-endpoint": "https://na1-sandbox.api.commerce.adobe.com/UDuWBuwuyaGyQ2MxjFJd3n/graphql",
       "commerce-endpoint": "https://na1-sandbox.api.commerce.adobe.com/UDuWBuwuyaGyQ2MxjFJd3n/graphql",
+      // "commerce-core-endpoint": "https://na1-sandbox.api.commerce.adobe.com/LwndYQs37CvkUQk9WEmNkz/graphql",
+      // "commerce-endpoint": "https://na1-sandbox.api.commerce.adobe.com/LwndYQs37CvkUQk9WEmNkz/graphql",
       "headers": {
         "all": {
           "Store": "default"
@@ -13,6 +15,10 @@
           "Magento-Website-Code": "base"
         }
       },
+      "subscriptions-data-source": "local",
+      "subscriptions-endpoint": "",
+      "subscriptions-fetch-method": "GET",
+      "subscriptions-timeout-ms": 10000,
       "plugins": {
         "picker": {
           "rootCategory": "2"
