@@ -179,6 +179,23 @@ const groupedSamplerUnavailable = {
 };
 
 /**
+ * Demo-catalog aliases (LwndYQs… / boilerplate-accs).
+ * Temporary mapping so subscription UI shows on real PDP products.
+ * Remove or replace once Recurbuy catalog SKUs are available.
+ */
+const demoGiftPackaging = {
+  ...simpleBread,
+  sku: 'ADB102',
+};
+
+const demoYouthTee = {
+  ...configurableCoffeeLight,
+  sku: 'ADB150',
+  parentSku: 'ADB150',
+  productType: 'configurable',
+};
+
+/**
  * @type {Record<string, import('../contract.js').SubscriptionEligibility>}
  */
 export const PRODUCT_FIXTURES = {
@@ -195,6 +212,10 @@ export const PRODUCT_FIXTURES = {
   'RB-VEG-BUNDLE-001': bundleVegetables,
   'RB-GROUPED-001': groupedSampler,
   'RB-GROUPED-002': groupedSamplerUnavailable,
+
+  // Real demo SKUs — open these PDPs to preview subscription UI
+  ADB102: demoGiftPackaging,
+  ADB150: demoYouthTee,
 };
 
 export const FIXTURE_PRODUCTS = [
@@ -204,4 +225,6 @@ export const FIXTURE_PRODUCTS = [
   { name: 'Configurable Coffee (Dark)', sku: 'RB-COFFEE-001-D', productType: 'configurable' },
   { name: 'Bundle Vegetables', sku: 'RB-VEG-BUNDLE-001', productType: 'bundle' },
   { name: 'Grouped Sampler', sku: 'RB-GROUPED-001', productType: 'grouped' },
+  { name: 'Gift Packaging (demo alias)', sku: 'ADB102', productType: 'simple' },
+  { name: 'Youth Tee (demo alias)', sku: 'ADB150', productType: 'configurable' },
 ];
