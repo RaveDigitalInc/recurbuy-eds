@@ -40,7 +40,11 @@ export const SubscriptionGateway = {
     }
 
     if (shouldUseLocalFixtures()) {
-      const data = resolveFixtureCartDetails(request.sku, request.planId);
+      const data = resolveFixtureCartDetails(
+        request.sku,
+        request.planId,
+        request.parentSku,
+      );
       if (!data) {
         return {
           error: {

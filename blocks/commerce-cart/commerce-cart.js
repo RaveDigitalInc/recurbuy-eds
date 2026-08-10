@@ -32,6 +32,12 @@ import createMiniPDP from '../commerce-mini-pdp/commerce-mini-pdp.js';
 import '../../scripts/initializers/cart.js';
 import '../../scripts/initializers/wishlist.js';
 import { renderCustomAttributes } from '../../scripts/helpers/custom-attributes.js';
+import {
+  clearCartSubscriptionDetails,
+  fetchCartItemSubscriptionDetails,
+  renderCartSubscriptionDetails,
+  syncCartSubscriptionDetails,
+} from '../../scripts/subscriptions/index.js';
 
 import { readBlockConfig } from '../../scripts/aem.js';
 import { rootLink, fetchPlaceholders } from '../../scripts/commerce.js';
@@ -58,6 +64,9 @@ export default async function decorate(block) {
   // Modal state
   let currentModal = null;
   let currentNotification = null;
+
+  /** Cart item uid -> subscription details from gateway */
+  const subscriptionDetailsByUid = new Map();
 
   // Layout
   const fragment = document.createRange().createContextualFragment(`
@@ -202,14 +211,36 @@ export default async function decorate(block) {
         },
 
         ProductAttributes: (ctx) => {
-          const wrapper = document.createElement('div');
+          const attributesWrapper = document.createElement('div');
           renderCustomAttributes(
-            wrapper,
+            attributesWrapper,
             ctx.item?.productAttributes ?? [],
             'cart',
             { sku: ctx.item?.sku },
           );
-          ctx.appendChild(wrapper);
+          ctx.appendChild(attributesWrapper);
+
+          // Subscription details stay in a separate node from catalog attributes
+          const subscriptionRoot = document.createElement('div');
+          subscriptionRoot.className = 'cart-subscription-details';
+          ctx.appendChild(subscriptionRoot);
+
+          const uid = ctx.item?.uid;
+          const cached = uid ? subscriptionDetailsByUid.get(uid) : null;
+          if (cached) {
+            renderCartSubscriptionDetails(subscriptionRoot, cached);
+            return;
+          }
+
+          fetchCartItemSubscriptionDetails(ctx.item).then((details) => {
+            if (!subscriptionRoot.isConnected) return;
+            if (details && uid) {
+              subscriptionDetailsByUid.set(uid, details);
+              renderCartSubscriptionDetails(subscriptionRoot, details);
+              return;
+            }
+            clearCartSubscriptionDetails(subscriptionRoot);
+          });
         },
 
         Footer: (ctx) => {
@@ -303,6 +334,15 @@ export default async function decorate(block) {
   ]);
 
   let cartViewEventPublished = false;
+
+  const refreshSubscriptionDetails = async (items) => {
+    const next = await syncCartSubscriptionDetails(items, subscriptionDetailsByUid);
+    subscriptionDetailsByUid.clear();
+    next.forEach((details, uid) => {
+      subscriptionDetailsByUid.set(uid, details);
+    });
+  };
+
   // Events
   events.on(
     'cart/data',
@@ -317,9 +357,23 @@ export default async function decorate(block) {
         cartViewEventPublished = true;
         publishShoppingCartViewEvent();
       }
+
+      // Event is a refresh trigger; gateway remains the source of truth
+      refreshSubscriptionDetails(cartData?.items);
     },
     { eager: true },
   );
+
+  events.on('cart/product-added', (addedItems) => {
+    let list = [];
+    if (Array.isArray(addedItems)) {
+      list = addedItems;
+    } else if (addedItems) {
+      list = [addedItems];
+    }
+    const cartItems = Cart.getCartDataFromCache()?.items || [];
+    refreshSubscriptionDetails([...cartItems, ...list]);
+  });
 
   events.on('wishlist/alert', ({ action, item }) => {
     wishlistRender.render(WishlistAlert, {

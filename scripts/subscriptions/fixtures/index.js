@@ -29,10 +29,12 @@ export function resolveFixtureEligibility(request) {
 /**
  * @param {string} sku
  * @param {string} [planId]
+ * @param {string} [parentSku]
  * @returns {import('../contract.js').CartSubscriptionDetails|undefined}
  */
-export function resolveFixtureCartDetails(sku, planId) {
-  const eligibility = PRODUCT_FIXTURES[sku];
+export function resolveFixtureCartDetails(sku, planId, parentSku) {
+  const eligibility = PRODUCT_FIXTURES[sku]
+    || (parentSku ? PRODUCT_FIXTURES[parentSku] : undefined);
   if (!eligibility?.eligible) return undefined;
 
   const selectedPlanId = planId || eligibility.selectedPlanId;

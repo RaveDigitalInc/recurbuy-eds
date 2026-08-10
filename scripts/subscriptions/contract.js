@@ -126,6 +126,7 @@
 /**
  * @typedef {Object} CartSubscriptionDetailsRequest
  * @property {string} sku
+ * @property {string} [parentSku]
  * @property {string} [cartItemUid]
  * @property {string} [planId]
  */

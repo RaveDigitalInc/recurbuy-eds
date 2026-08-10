@@ -85,3 +85,57 @@
     margin-top: var(--spacing-xxsmall);
     font-size: var(--type-body-3-font-size, 12px);
   }
+
+/* Subscription details (separate from catalog attributes) */
+.cart-subscription-details {
+  margin-top: var(--spacing-xsmall);
+}
+
+.cart-subscription-details:empty,
+.cart-subscription-details[hidden] {
+  display: none;
+}
+
+.cart-subscription-details__content {
+  display: grid;
+  gap: var(--spacing-xxsmall);
+  padding: var(--spacing-xsmall);
+  border: var(--shape-border-width-1) solid var(--color-neutral-400);
+  border-radius: var(--shape-border-radius-1);
+  background: var(--color-neutral-50);
+}
+
+.cart-subscription-details__badge {
+  width: fit-content;
+  font: var(--type-details-caption-1-font);
+  letter-spacing: var(--type-details-caption-1-letter-spacing);
+  color: var(--color-brand-700);
+  text-transform: uppercase;
+}
+
+.cart-subscription-details__list {
+  margin: 0;
+  display: grid;
+  gap: var(--spacing-xxsmall);
+}
+
+.cart-subscription-details__row {
+  display: grid;
+  grid-template-columns: minmax(0, 9rem) 1fr;
+  gap: var(--spacing-xsmall);
+  align-items: baseline;
+}
+
+.cart-subscription-details__label {
+  margin: 0;
+  font: var(--type-body-2-default-font);
+  letter-spacing: var(--type-body-2-default-letter-spacing);
+  color: var(--color-neutral-700);
+}
+
+.cart-subscription-details__value {
+  margin: 0;
+  font: var(--type-body-2-emphasized-font);
+  letter-spacing: var(--type-body-2-emphasized-letter-spacing);
+  color: var(--color-neutral-800);
+}

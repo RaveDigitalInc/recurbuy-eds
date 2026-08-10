@@ -28,3 +28,9 @@ export {
   renderSubscriptionSelector,
 } from './subscription-selector.js';
 export { mountSubscriptionOnPdp } from './mount-pdp.js';
+export {
+  clearCartSubscriptionDetails,
+  fetchCartItemSubscriptionDetails,
+  renderCartSubscriptionDetails,
+  syncCartSubscriptionDetails,
+} from './cart-subscription-details.js';

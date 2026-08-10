@@ -272,9 +272,11 @@ export default async function decorate(block) {
 
         // add or update the product in the cart
         if (valid && selectionValid) {
+          const productData = events.lastPayload('pdp/data') ?? product;
           const cartItem = CartPayloadAdapter.enrich(
             values,
             subscriptionController.getSelection(),
+            { parentSku: productData?.sku },
           );
 
           if (isUpdateMode) {
