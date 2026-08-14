@@ -35,6 +35,11 @@ import {
 import { IMAGES_SIZES } from '../../scripts/initializers/pdp.js';
 import '../../scripts/initializers/cart.js';
 import '../../scripts/initializers/wishlist.js';
+import { renderCustomAttributes } from '../../scripts/helpers/custom-attributes.js';
+import {
+  CartPayloadAdapter,
+  mountSubscriptionOnPdp,
+} from '../../scripts/subscriptions/index.js';
 
 // Function to update the Add to Cart button text
 function updateAddToCartButtonText(addToCartInstance, inCart, labels) {
@@ -47,6 +52,17 @@ function updateAddToCartButtonText(addToCartInstance, inCart, labels) {
       children: buttonText,
     }));
   }
+}
+
+function updateAddToCartDisabled(addToCartInstance, productValid, subscriptionController) {
+  if (!addToCartInstance) return;
+  const selectionValid = subscriptionController
+    ? subscriptionController.isSelectionValid()
+    : true;
+  addToCartInstance.setProps((prev) => ({
+    ...prev,
+    disabled: !productValid || !selectionValid,
+  }));
 }
 
 export default async function decorate(block) {
@@ -70,8 +86,10 @@ export default async function decorate(block) {
       <div class="product-details__right-column">
         <div class="product-details__header"></div>
         <div class="product-details__price"></div>
+        <div class="product-details__subscription-price"></div>
         <div class="product-details__gallery"></div>
         <div class="product-details__short-description"></div>
+        <div class="product-details__subscription"></div>
         <div class="product-details__configuration">
           <div class="product-details__options"></div>
           <div class="product-details__quantity"></div>
@@ -90,8 +108,10 @@ export default async function decorate(block) {
   const $gallery = fragment.querySelector('.product-details__gallery');
   const $header = fragment.querySelector('.product-details__header');
   const $price = fragment.querySelector('.product-details__price');
+  const $subscriptionPrice = fragment.querySelector('.product-details__subscription-price');
   const $galleryMobile = fragment.querySelector('.product-details__right-column .product-details__gallery');
   const $shortDescription = fragment.querySelector('.product-details__short-description');
+  const $subscription = fragment.querySelector('.product-details__subscription');
   const $options = fragment.querySelector('.product-details__options');
   const $quantity = fragment.querySelector('.product-details__quantity');
   const $addToCart = fragment.querySelector('.product-details__buttons__add-to-cart');
@@ -100,6 +120,24 @@ export default async function decorate(block) {
   const $attributes = fragment.querySelector('.product-details__attributes');
 
   block.replaceChildren(fragment);
+
+  let latestProductValid = true;
+  /** @type {{ setProps: Function }|null} */
+  let addToCartRef = null;
+  const subscriptionController = mountSubscriptionOnPdp({
+    selectorRoot: $subscription,
+    priceRoot: $subscriptionPrice,
+    productPriceRoot: $price,
+    onChange: (_selection, meta) => {
+      latestProductValid = meta.productValid;
+      if (addToCartRef) {
+        addToCartRef.setProps((prev) => ({
+          ...prev,
+          disabled: !meta.productValid || !meta.selectionValid,
+        }));
+      }
+    },
+  });
 
   const gallerySlots = {
     CarouselThumbnail: (ctx) => {
@@ -189,7 +227,22 @@ export default async function decorate(block) {
     pdpRendered.render(ProductDescription, {})($description),
 
     // Attributes
-    pdpRendered.render(ProductAttributes, {})($attributes),
+    pdpRendered.render(ProductAttributes, {
+      slots: {
+        Attributes: (ctx) => {
+          const wrapper = document.createElement('div');
+          wrapper.className = 'product-details__custom-attributes-wrapper';
+
+          const attributesData = ctx.data?.attributes ?? [];
+          const skuData = ctx.data?.sku;
+
+          // Рендерим атрибуты вместе со SKU, не перезаписывая innerHTML/textContent
+          renderCustomAttributes(wrapper, attributesData, 'pdp', { sku: skuData });
+
+          ctx.appendChild(wrapper);
+        },
+      },
+    })($attributes),
 
     // Wishlist button - WishlistToggle Container
     wishlistRender.render(WishlistToggle, {
@@ -215,19 +268,27 @@ export default async function decorate(block) {
         // get the current selection values
         const values = pdpApi.getProductConfigurationValues();
         const valid = pdpApi.isProductConfigurationValid();
+        const selectionValid = subscriptionController.isSelectionValid();
 
         // add or update the product in the cart
-        if (valid) {
+        if (valid && selectionValid) {
+          const productData = events.lastPayload('pdp/data') ?? product;
+          const cartItem = CartPayloadAdapter.enrich(
+            values,
+            subscriptionController.getSelection(),
+            { parentSku: productData?.sku },
+          );
+
           if (isUpdateMode) {
             // --- Update existing item ---
             const { updateProductsFromCart } = await import(
               '@dropins/storefront-cart/api.js'
             );
 
-            await updateProductsFromCart([{ ...values, uid: itemUidFromUrl }]);
+            await updateProductsFromCart([{ ...cartItem, uid: itemUidFromUrl }]);
 
             // --- START REDIRECT ON UPDATE ---
-            const updatedSku = values?.sku;
+            const updatedSku = cartItem?.sku;
             if (updatedSku) {
               const cartRedirectUrl = new URL(
                 rootLink('/cart'),
@@ -248,7 +309,7 @@ export default async function decorate(block) {
           const { addProductsToCart } = await import(
             '@dropins/storefront-cart/api.js'
           );
-          await addProductsToCart([{ ...values }]);
+          await addProductsToCart([cartItem]);
         }
 
         // reset any previous alerts if successful
@@ -274,19 +335,22 @@ export default async function decorate(block) {
       } finally {
         // Reset button text using the helper function which respects the current mode
         updateAddToCartButtonText(addToCart, isUpdateMode, labels);
-        // Re-enable button
-        addToCart.setProps((prev) => ({
-          ...prev,
-          disabled: false,
-        }));
+        updateAddToCartDisabled(
+          addToCart,
+          pdpApi.isProductConfigurationValid(),
+          subscriptionController,
+        );
       }
     },
   })($addToCart);
+  addToCartRef = addToCart;
+  updateAddToCartDisabled(addToCart, latestProductValid, subscriptionController);
 
   // Lifecycle Events
   events.on('pdp/valid', (valid) => {
-    // update add to cart button disabled state based on product selection validity
-    addToCart.setProps((prev) => ({ ...prev, disabled: !valid }));
+    latestProductValid = valid;
+    // update add to cart button disabled state based on product + subscription validity
+    updateAddToCartDisabled(addToCart, valid, subscriptionController);
   }, { eager: true });
 
   // Handle option changes

@@ -13,6 +13,10 @@
           "Magento-Website-Code": "base"
         }
       },
+      "subscriptions-data-source": "local",
+      "subscriptions-endpoint": "",
+      "subscriptions-fetch-method": "GET",
+      "subscriptions-timeout-ms": 10000,
       "plugins": {
         "picker": {
           "rootCategory": "2"

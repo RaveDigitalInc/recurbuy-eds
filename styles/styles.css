@@ -480,3 +480,43 @@ body.columns main > .section:empty {
 main[hidden] {
   display: none !important;
 }
+
+/* ==========================================================================
+   Custom Attributes & SKU Global Styles (Shared)
+   ========================================================================== */
+
+.custom-attrs__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xxsmall);
+  margin: 0;
+  padding: 0;
+}
+
+.custom-attrs__row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xsmall);
+  font-size: var(--type-body-2-default-font);
+  line-height: 1.4;
+}
+
+.custom-attrs__row--sku {
+  font-weight: var(--type-body-1-strong-font);
+  color: var(--color-neutral-800);
+}
+
+.custom-attrs__label {
+  margin: 0;
+  font-weight: var(--type-body-1-strong-font);
+  color: var(--color-neutral-800);
+}
+
+.custom-attrs__value {
+  margin: 0;
+  color: var(--color-neutral-700);
+}
+
+.custom-attrs__empty {
+  display: none;
+}
