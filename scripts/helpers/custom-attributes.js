@@ -6,8 +6,7 @@
  * @param {Object} [options] - Additional parameters (e.g. { sku: '...' })
  */
 export function renderCustomAttributes(container, attributes = [], format = 'pdp', options = {}) {
-  container.classList.add('custom-attrs', `custom-attrs--${scope}`);
-  container.className = 'custom-attrs';
+  container.className = `custom-attrs custom-attrs--${format}`;
   container.innerHTML = '';
 
   const list = document.createElement('dl');

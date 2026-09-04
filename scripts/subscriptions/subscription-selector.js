@@ -5,6 +5,8 @@ import {
   getPlanDisplayPrice,
 } from './format.js';
 
+const ONE_TIME_VALUE = 'one_time';
+
 /**
  * @typedef {import('./contract.js').SubscriptionEligibility} SubscriptionEligibility
  * @typedef {import('./contract.js').SubscriptionSelection} SubscriptionSelection
@@ -88,75 +90,36 @@ export function renderSubscriptionSelector(root, state) {
   }
 
   const purchaseType = selection.purchaseType || eligibility.defaultPurchaseType || 'one_time';
-  const selectedPlanId = selection.planId
-    || eligibility.selectedPlanId
-    || eligibility.plans[0]?.id;
-  const selectedPlan = eligibility.plans.find((plan) => plan.id === selectedPlanId)
-    || eligibility.plans[0];
-  const allowOneTime = eligibility.allowOneTime !== false;
   const isSubscribe = purchaseType === 'subscription';
+  const selectedPlanId = isSubscribe
+    ? (selection.planId || eligibility.selectedPlanId || eligibility.plans[0]?.id)
+    : undefined;
+  const selectedPlan = eligibility.plans.find((plan) => plan.id === selectedPlanId) || null;
+  const allowOneTime = eligibility.allowOneTime !== false;
   const disabledAttr = productValid ? '' : 'disabled';
 
   root.innerHTML = `
     <fieldset class="subscription-selector__fieldset" ${disabledAttr}>
       <legend class="subscription-selector__legend">Purchase options</legend>
       <div class="subscription-selector__options" role="radiogroup" aria-label="Purchase options">
-        ${allowOneTime ? `
-          <label class="subscription-selector__option ${!isSubscribe ? 'is-selected' : ''}">
-            <input
-              class="subscription-selector__radio"
-              type="radio"
-              name="subscription-purchase-type"
-              value="one_time"
-              ${!isSubscribe ? 'checked' : ''}
-            />
-            <span class="subscription-selector__option-body">
-              <span class="subscription-selector__option-title">One-time purchase</span>
-              <span class="subscription-selector__option-caption">Buy once at the regular price</span>
-            </span>
-          </label>
-        ` : ''}
-        <label class="subscription-selector__option ${isSubscribe ? 'is-selected' : ''}">
-          <input
-            class="subscription-selector__radio"
-            type="radio"
-            name="subscription-purchase-type"
-            value="subscription"
-            ${isSubscribe ? 'checked' : ''}
-          />
-          <span class="subscription-selector__option-body">
-            <span class="subscription-selector__option-title">Subscribe &amp; save</span>
-            <span class="subscription-selector__option-caption">
-              Recurring delivery with subscription pricing
-            </span>
-          </span>
-        </label>
-      </div>
-    </fieldset>
-    <div class="subscription-selector__plans ${isSubscribe ? '' : 'is-hidden'}">
-      <p class="subscription-selector__plans-title">Delivery frequency</p>
-      <div class="subscription-selector__plan-list" role="list">
+        ${allowOneTime ? renderOneTimeOption(!isSubscribe) : ''}
         ${eligibility.plans.map((plan) => renderPlanOption(
     plan,
-    plan.id === selectedPlan?.id,
-    isSubscribe,
+    isSubscribe && plan.id === selectedPlan?.id,
   )).join('')}
       </div>
-      ${selectedPlan ? renderPlanDetails(selectedPlan) : ''}
-      ${renderCustomOptions(eligibility, selection, isSubscribe)}
-    </div>
+    </fieldset>
+    ${selectedPlan ? renderPlanDetails(selectedPlan) : ''}
+    ${renderCustomOptions(eligibility, selection, isSubscribe)}
   `;
 
-  root.querySelectorAll('input[name="subscription-purchase-type"]').forEach((input) => {
+  root.querySelectorAll('input[name="subscription-choice"]').forEach((input) => {
     input.addEventListener('change', (event) => {
       const { value } = /** @type {HTMLInputElement} */ (event.target);
-      onPurchaseTypeChange?.(/** @type {PurchaseType} */ (value));
-    });
-  });
-
-  root.querySelectorAll('input[name="subscription-plan"]').forEach((input) => {
-    input.addEventListener('change', (event) => {
-      const { value } = /** @type {HTMLInputElement} */ (event.target);
+      if (value === ONE_TIME_VALUE) {
+        onPurchaseTypeChange?.('one_time');
+        return;
+      }
       onPlanChange?.(value);
     });
   });
@@ -172,34 +135,51 @@ export function renderSubscriptionSelector(root, state) {
 }
 
 /**
- * @param {import('./contract.js').SubscriptionPlan} plan
  * @param {boolean} checked
- * @param {boolean} isSubscribe
  * @returns {string}
  */
-function renderPlanOption(plan, checked, isSubscribe) {
+function renderOneTimeOption(checked) {
+  return `
+    <label class="subscription-selector__option ${checked ? 'is-selected' : ''}">
+      <input
+        class="subscription-selector__radio"
+        type="radio"
+        name="subscription-choice"
+        value="${ONE_TIME_VALUE}"
+        ${checked ? 'checked' : ''}
+      />
+      <span class="subscription-selector__option-body">
+        <span class="subscription-selector__option-title">One-time purchase</span>
+        <span class="subscription-selector__option-caption">Buy once at the regular price</span>
+      </span>
+    </label>
+  `;
+}
+
+/**
+ * @param {import('./contract.js').SubscriptionPlan} plan
+ * @param {boolean} checked
+ * @returns {string}
+ */
+function renderPlanOption(plan, checked) {
   const price = getPlanDisplayPrice(plan);
   const saving = formatDiscount(plan.discount);
 
   return `
-    <label class="subscription-selector__plan ${checked ? 'is-selected' : ''}" role="listitem">
+    <label class="subscription-selector__option ${checked ? 'is-selected' : ''}">
       <input
-        class="subscription-selector__plan-radio"
+        class="subscription-selector__radio"
         type="radio"
-        name="subscription-plan"
+        name="subscription-choice"
         value="${plan.id}"
         ${checked ? 'checked' : ''}
-        ${isSubscribe ? '' : 'disabled'}
       />
-      <span class="subscription-selector__plan-body">
-        <span class="subscription-selector__plan-label">${plan.label}</span>
-        <span class="subscription-selector__plan-meta">
+      <span class="subscription-selector__option-body">
+        <span class="subscription-selector__option-title">${plan.label}</span>
+        <span class="subscription-selector__option-caption">
           ${formatMoney(price)} · ${formatPeriod(plan.period)}
           ${saving ? ` · ${saving}` : ''}
         </span>
-        ${plan.description ? `
-          <span class="subscription-selector__plan-description">${plan.description}</span>
-        ` : ''}
       </span>
     </label>
   `;
@@ -247,15 +227,15 @@ function renderPlanDetails(plan) {
  */
 function renderCustomOptions(eligibility, selection, isSubscribe) {
   const options = eligibility.customOptions || [];
-  if (!options.length) return '';
+  if (!options.length || !isSubscribe) return '';
 
   return `
-    <div class="subscription-selector__custom-options ${isSubscribe ? '' : 'is-hidden'}">
+    <div class="subscription-selector__custom-options">
       <p class="subscription-selector__custom-options-title">Subscription options</p>
       ${options.map((option) => renderCustomOption(
     option,
     selection.customOptionValues?.[option.code] || '',
-    isSubscribe,
+    true,
   )).join('')}
     </div>
   `;

@@ -108,9 +108,7 @@ export function mountSubscriptionOnPdp({
         selection = {
           ...selection,
           purchaseType,
-          planId: purchaseType === 'subscription'
-            ? (selection.planId || eligibility?.selectedPlanId || eligibility?.plans?.[0]?.id)
-            : undefined,
+          planId: undefined,
         };
         render();
       },
@@ -134,7 +132,7 @@ export function mountSubscriptionOnPdp({
       },
     });
 
-    if (viewState === 'ready' || viewState === 'unavailable' || viewState === 'error') {
+    if (viewState === 'ready') {
       const { standardPrice, standardRegularPrice } = getStandardPrices();
       renderSubscriptionPriceBox(priceRoot, {
         purchaseType: selection.purchaseType,
@@ -143,7 +141,7 @@ export function mountSubscriptionOnPdp({
         standardRegularPrice,
       });
       setProductPriceVisibility(true);
-    } else if (viewState === 'loading') {
+    } else {
       clearSubscriptionPriceBox(priceRoot);
       setProductPriceVisibility(false);
     }
@@ -196,7 +194,7 @@ export function mountSubscriptionOnPdp({
     if (!keepPlan) {
       selection = {
         purchaseType: defaultPurchaseType,
-        planId: defaultPlanId,
+        planId: defaultPurchaseType === 'subscription' ? defaultPlanId : undefined,
         customOptionValues: {},
       };
     } else if (eligibility.allowOneTime === false) {
@@ -329,19 +327,29 @@ function buildEligibilityRequest(product, values) {
  * @returns {import('./contract.js').ProductType}
  */
 function resolveProductType(product) {
-  if (product.isBundle) return 'bundle';
+  // 1. Bundle Product
+  if (product.isBundle || product.__typename === 'BundleProduct') {
+    return 'bundle';
+  }
 
-  const hasProductOptions = Array.isArray(product.options)
+  // 2. Grouped Product
+  const hasGroupedItems = Array.isArray(product.options)
     && product.options.some((option) => option.typename === 'ProductViewOptionValueProduct');
 
-  if (hasProductOptions) {
+  if (hasGroupedItems || product.__typename === 'GroupedProduct') {
     return 'grouped';
   }
 
-  if (product.variantSku || (Array.isArray(product.options) && product.options.length > 0)) {
+  // 3. Configurable Product (наличие сгенерированного variantSku или массива вариантов/атрибутов)
+  const isConfigurable = Boolean(product.variantSku)
+    || product.__typename === 'ConfigurableProduct'
+    || (Array.isArray(product.variants) && product.variants.length > 0);
+
+  if (isConfigurable) {
     return 'configurable';
   }
 
+  // 4. Fallback -> Simple
   return 'simple';
 }
 

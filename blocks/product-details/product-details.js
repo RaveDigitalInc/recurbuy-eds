@@ -236,9 +236,7 @@ export default async function decorate(block) {
           const attributesData = ctx.data?.attributes ?? [];
           const skuData = ctx.data?.sku;
 
-          // Рендерим атрибуты вместе со SKU, не перезаписывая innerHTML/textContent
           renderCustomAttributes(wrapper, attributesData, 'pdp', { sku: skuData });
-
           ctx.appendChild(wrapper);
         },
       },
@@ -265,16 +263,17 @@ export default async function decorate(block) {
           disabled: true,
         }));
 
-        // get the current selection values
+        // Get current selection values from PDP API
         const values = pdpApi.getProductConfigurationValues();
         const valid = pdpApi.isProductConfigurationValid();
         const selectionValid = subscriptionController.isSelectionValid();
 
-        // add or update the product in the cart
         if (valid && selectionValid) {
           const productData = events.lastPayload('pdp/data') ?? product;
+          
+          // Enrich payload with subscription data
           const cartItem = CartPayloadAdapter.enrich(
-            values,
+            values || { sku: productData?.sku, quantity: 1 },
             subscriptionController.getSelection(),
             { parentSku: productData?.sku },
           );
@@ -287,7 +286,6 @@ export default async function decorate(block) {
 
             await updateProductsFromCart([{ ...cartItem, uid: itemUidFromUrl }]);
 
-            // --- START REDIRECT ON UPDATE ---
             const updatedSku = cartItem?.sku;
             if (updatedSku) {
               const cartRedirectUrl = new URL(
@@ -297,14 +295,11 @@ export default async function decorate(block) {
               cartRedirectUrl.searchParams.set('itemUid', itemUidFromUrl);
               window.location.href = cartRedirectUrl.toString();
             } else {
-              // Fallback if SKU is somehow missing (shouldn't happen in normal flow)
-              console.warn(
-                'Could not retrieve SKU for updated item. Redirecting to cart without parameter.',
-              );
               window.location.href = rootLink('/cart');
             }
             return;
           }
+
           // --- Add new item ---
           const { addProductsToCart } = await import(
             '@dropins/storefront-cart/api.js'
@@ -312,10 +307,8 @@ export default async function decorate(block) {
           await addProductsToCart([cartItem]);
         }
 
-        // reset any previous alerts if successful
         inlineAlert?.remove();
       } catch (error) {
-        // add alert message
         inlineAlert = await UI.render(InLineAlert, {
           heading: 'Error',
           description: error.message,
@@ -327,13 +320,11 @@ export default async function decorate(block) {
           },
         })($alert);
 
-        // Scroll the alertWrapper into view
         $alert.scrollIntoView({
           behavior: 'smooth',
           block: 'center',
         });
       } finally {
-        // Reset button text using the helper function which respects the current mode
         updateAddToCartButtonText(addToCart, isUpdateMode, labels);
         updateAddToCartDisabled(
           addToCart,
@@ -343,25 +334,20 @@ export default async function decorate(block) {
       }
     },
   })($addToCart);
+
   addToCartRef = addToCart;
   updateAddToCartDisabled(addToCart, latestProductValid, subscriptionController);
 
   // Lifecycle Events
   events.on('pdp/valid', (valid) => {
     latestProductValid = valid;
-    // update add to cart button disabled state based on product + subscription validity
     updateAddToCartDisabled(addToCart, valid, subscriptionController);
   }, { eager: true });
 
-  // Handle option changes
   events.on('pdp/values', () => {
     if (wishlistToggleBtn) {
       const configValues = pdpApi.getProductConfigurationValues();
-
-      // Check URL parameter for empty optionsUIDs
       const urlOptionsUIDs = urlParams.get('optionsUIDs');
-
-      // If URL has empty optionsUIDs parameter, treat as base product (no options)
       const optionUIDs = urlOptionsUIDs === '' ? undefined : (configValues?.optionsUIDs || undefined);
 
       wishlistToggleBtn.setProps((prev) => ({
@@ -393,7 +379,6 @@ export default async function decorate(block) {
     }, 0);
   });
 
-  // --- Add new event listener for cart/data ---
   events.on(
     'cart/data',
     (cartData) => {
@@ -403,10 +388,7 @@ export default async function decorate(block) {
           (item) => item.uid === itemUidFromUrl,
         );
       }
-      // Set the update mode state
       isUpdateMode = itemIsInCart;
-
-      // Update button text based on whether the item is in the cart
       updateAddToCartButtonText(addToCart, itemIsInCart, labels);
     },
     { eager: true },
@@ -439,7 +421,6 @@ async function setJsonLdProduct(product) {
   const amount = priceRange?.minimum?.final?.amount || price?.final?.amount;
   const brand = attributes.find((attr) => attr.name === 'brand');
 
-  // get variants
   const { data } = await pdpApi.fetchGraphQl(`
     query GET_PRODUCT_VARIANTS($sku: String!) {
       variants(sku: $sku) {
@@ -548,21 +529,17 @@ function setMetaTags(product) {
   const metaImage = mainImage?.url || product?.images[0]?.url;
   createMetaTag('og:image', metaImage, 'property');
   createMetaTag('og:image:secure_url', metaImage, 'property');
-  createMetaTag('product:price:amount', price.value, 'property');
-  createMetaTag('product:price:currency', price.currency, 'property');
+  if (price) {
+    createMetaTag('product:price:amount', price.value, 'property');
+    createMetaTag('product:price:currency', price.currency, 'property');
+  }
 }
 
-/**
- * Returns the configuration for an image slot.
- * @param ctx - The context of the slot.
- * @returns The configuration for the image slot.
- */
 function imageSlotConfig(ctx) {
   const { data, defaultImageProps } = ctx;
   return {
     alias: data.sku,
     imageProps: defaultImageProps,
-
     params: {
       width: defaultImageProps.width,
       height: defaultImageProps.height,
