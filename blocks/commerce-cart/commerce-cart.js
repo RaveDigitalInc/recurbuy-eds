@@ -209,7 +209,7 @@ export default async function decorate(block) {
         },
 
         ProductAttributes: (ctx) => {
-          const item = ctx.item;
+          const { item } = ctx;
           const uid = item?.uid;
 
           const attributesWrapper = document.createElement('div');

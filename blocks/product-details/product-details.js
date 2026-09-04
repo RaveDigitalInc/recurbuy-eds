@@ -270,7 +270,7 @@ export default async function decorate(block) {
 
         if (valid && selectionValid) {
           const productData = events.lastPayload('pdp/data') ?? product;
-          
+
           // Enrich payload with subscription data
           const cartItem = CartPayloadAdapter.enrich(
             values || { sku: productData?.sku, quantity: 1 },
