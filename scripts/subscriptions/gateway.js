@@ -1,7 +1,6 @@
 import { fetchEligibility } from './adapters/dummy-json-adapter.js';
 import { SUBSCRIPTION_ERROR_CODES } from './contract.js';
 import { resolveFixtureCartDetails } from './fixtures/index.js';
-import { shouldUseLocalFixtures } from './config.js';
 
 /**
  * @typedef {import('./contract.js').SubscriptionEligibilityRequest}
@@ -39,62 +38,20 @@ export const SubscriptionGateway = {
       };
     }
 
-    if (shouldUseLocalFixtures()) {
-      const data = resolveFixtureCartDetails(
-        request.sku,
-        request.planId,
-        request.parentSku,
-      );
-      if (!data) {
-        return {
-          error: {
-            code: SUBSCRIPTION_ERROR_CODES.NOT_FOUND,
-            message: `No subscription details found for SKU ${request.sku}.`,
-          },
-        };
-      }
-
-      return { data };
-    }
-
-    const eligibilityResponse = await fetchEligibility({
-      sku: request.sku,
-      productType: 'simple',
-    });
-
-    if (eligibilityResponse.error || !eligibilityResponse.data) {
+    const data = resolveFixtureCartDetails(
+      request.sku,
+      request.planId,
+      request.parentSku,
+    );
+    if (!data) {
       return {
-        error: eligibilityResponse.error || {
+        error: {
           code: SUBSCRIPTION_ERROR_CODES.NOT_FOUND,
           message: `No subscription details found for SKU ${request.sku}.`,
         },
       };
     }
 
-    const planId = request.planId || eligibilityResponse.data.selectedPlanId;
-    const plan = eligibilityResponse.data.plans.find((entry) => entry.id === planId);
-
-    if (!plan) {
-      return {
-        error: {
-          code: SUBSCRIPTION_ERROR_CODES.NOT_FOUND,
-          message: `Subscription plan ${planId} was not found.`,
-        },
-      };
-    }
-
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() + 1);
-
-    return {
-      data: {
-        planId: plan.id,
-        planLabel: plan.label,
-        period: plan.period,
-        price: plan.prices.initial || plan.prices.regular,
-        startDate: startDate.toISOString().slice(0, 10),
-        purchaseType: 'subscription',
-      },
-    };
+    return { data };
   },
 };

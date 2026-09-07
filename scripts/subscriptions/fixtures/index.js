@@ -1,13 +1,6 @@
 import { PRODUCT_FIXTURES } from './products.js';
 
 /**
- * @returns {import('../contract.js').SubscriptionCatalogResponse}
- */
-export function getLocalCatalog() {
-  return { catalog: PRODUCT_FIXTURES };
-}
-
-/**
  * @param {import('../contract.js').SubscriptionEligibilityRequest} request
  * @returns {import('../contract.js').SubscriptionEligibility|undefined}
  */

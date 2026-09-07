@@ -59,8 +59,6 @@ export default async function decorate(block) {
 
   const placeholders = await fetchPlaceholders();
 
-  const _cart = Cart.getCartDataFromCache();
-
   // Modal state
   let currentModal = null;
   let currentNotification = null;
@@ -179,6 +177,7 @@ export default async function decorate(block) {
 
   // Render Containers
   const getProductLink = (product) => rootLink(`/products/${product.url.urlKey}/${product.topLevelSku}`);
+
   await Promise.all([
     // Cart List
     provider.render(CartSummaryList, {
@@ -202,7 +201,6 @@ export default async function decorate(block) {
             alias: item.sku,
             imageProps: defaultImageProps,
             wrapper: anchorWrapper,
-
             params: {
               width: defaultImageProps.width,
               height: defaultImageProps.height,
@@ -211,36 +209,49 @@ export default async function decorate(block) {
         },
 
         ProductAttributes: (ctx) => {
+          const { item } = ctx;
+          const uid = item?.uid;
+
           const attributesWrapper = document.createElement('div');
           renderCustomAttributes(
             attributesWrapper,
-            ctx.item?.productAttributes ?? [],
+            item?.productAttributes ?? [],
             'cart',
-            { sku: ctx.item?.sku },
+            { sku: item?.sku },
           );
           ctx.appendChild(attributesWrapper);
 
-          // Subscription details stay in a separate node from catalog attributes
-          const subscriptionRoot = document.createElement('div');
-          subscriptionRoot.className = 'cart-subscription-details';
-          ctx.appendChild(subscriptionRoot);
+          // Dedicated container for subscription metadata to avoid layout collisions
+          let subscriptionRoot = ctx.querySelector('.cart-subscription-details');
+          if (!subscriptionRoot) {
+            subscriptionRoot = document.createElement('div');
+            subscriptionRoot.className = 'cart-subscription-details';
+            ctx.appendChild(subscriptionRoot);
+          }
 
-          const uid = ctx.item?.uid;
-          const cached = uid ? subscriptionDetailsByUid.get(uid) : null;
-          if (cached) {
-            renderCartSubscriptionDetails(subscriptionRoot, cached);
+          // Render synchronously from cache if available
+          const cachedDetails = uid ? subscriptionDetailsByUid.get(uid) : null;
+          if (cachedDetails) {
+            renderCartSubscriptionDetails(subscriptionRoot, cachedDetails);
             return;
           }
 
-          fetchCartItemSubscriptionDetails(ctx.item).then((details) => {
-            if (!subscriptionRoot.isConnected) return;
-            if (details && uid) {
-              subscriptionDetailsByUid.set(uid, details);
-              renderCartSubscriptionDetails(subscriptionRoot, details);
-              return;
-            }
-            clearCartSubscriptionDetails(subscriptionRoot);
-          });
+          // Fallback async fetch with node connectivity check
+          fetchCartItemSubscriptionDetails(item)
+            .then((details) => {
+              if (!subscriptionRoot.isConnected) return;
+              if (details && uid) {
+                subscriptionDetailsByUid.set(uid, details);
+                renderCartSubscriptionDetails(subscriptionRoot, details);
+              } else {
+                clearCartSubscriptionDetails(subscriptionRoot);
+              }
+            })
+            .catch(() => {
+              if (subscriptionRoot.isConnected) {
+                clearCartSubscriptionDetails(subscriptionRoot);
+              }
+            });
         },
 
         Footer: (ctx) => {
@@ -260,7 +271,7 @@ export default async function decorate(block) {
             ctx.appendChild(editLink);
           }
 
-          // Wishlist Button (if product is not configurable)
+          // Wishlist Button
           const $wishlistToggle = document.createElement('div');
           $wishlistToggle.classList.add('cart__action--wishlist-toggle');
 
@@ -308,16 +319,12 @@ export default async function decorate(block) {
         },
         Coupons: (ctx) => {
           const coupons = document.createElement('div');
-
           provider.render(Coupons)(coupons);
-
           ctx.appendChild(coupons);
         },
         GiftCards: (ctx) => {
           const giftCards = document.createElement('div');
-
           provider.render(GiftCards)(giftCards);
-
           ctx.appendChild(giftCards);
         },
       },
@@ -326,7 +333,6 @@ export default async function decorate(block) {
     provider.render(GiftOptions, {
       view: 'order',
       dataSource: 'cart',
-
       slots: {
         SwatchImage: swatchImageSlot,
       },
@@ -336,11 +342,15 @@ export default async function decorate(block) {
   let cartViewEventPublished = false;
 
   const refreshSubscriptionDetails = async (items) => {
-    const next = await syncCartSubscriptionDetails(items, subscriptionDetailsByUid);
-    subscriptionDetailsByUid.clear();
-    next.forEach((details, uid) => {
-      subscriptionDetailsByUid.set(uid, details);
-    });
+    try {
+      const next = await syncCartSubscriptionDetails(items, subscriptionDetailsByUid);
+      subscriptionDetailsByUid.clear();
+      next.forEach((details, uid) => {
+        subscriptionDetailsByUid.set(uid, details);
+      });
+    } catch (error) {
+      console.error('Error syncing cart subscription details:', error);
+    }
   };
 
   // Events
@@ -358,7 +368,6 @@ export default async function decorate(block) {
         publishShoppingCartViewEvent();
       }
 
-      // Event is a refresh trigger; gateway remains the source of truth
       refreshSubscriptionDetails(cartData?.items);
     },
     { eager: true },
@@ -400,7 +409,6 @@ function swatchImageSlot(ctx) {
     alias: imageSwatchContext.label,
     imageProps: defaultImageProps,
     wrapper: document.createElement('span'),
-
     params: {
       width: defaultImageProps.width,
       height: defaultImageProps.height,

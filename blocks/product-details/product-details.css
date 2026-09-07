@@ -191,10 +191,9 @@
 .subscription-selector {
   display: grid;
   gap: var(--spacing-small);
-  padding: var(--spacing-small);
-  border: var(--shape-border-width-1) solid var(--color-neutral-400);
-  border-radius: var(--shape-border-radius-2);
-  background: var(--color-neutral-50);
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 .subscription-selector__fieldset {
@@ -205,63 +204,54 @@
 }
 
 .subscription-selector__legend,
-.subscription-selector__plans-title,
 .subscription-selector__details-title,
 .subscription-selector__custom-options-title,
 .subscription-selector__unavailable-title,
 .subscription-selector__error-title {
   margin: 0 0 var(--spacing-xsmall);
+  padding: 0;
   font: var(--type-body-1-emphasized-font);
   letter-spacing: var(--type-body-1-emphasized-letter-spacing);
   color: var(--color-neutral-800);
 }
 
-.subscription-selector__options,
-.subscription-selector__plan-list {
+.subscription-selector__options {
   display: grid;
   gap: var(--spacing-xsmall);
 }
 
-.subscription-selector__option,
-.subscription-selector__plan {
+.subscription-selector__option {
   display: grid;
   grid-template-columns: auto 1fr;
   gap: var(--spacing-xsmall);
   align-items: flex-start;
-  padding: var(--spacing-xsmall);
-  border: var(--shape-border-width-1) solid var(--color-neutral-400);
-  border-radius: var(--shape-border-radius-1);
-  background: var(--color-neutral-50);
+  padding: var(--spacing-xsmall) 0;
+  border: 0;
+  background: transparent;
   cursor: pointer;
 }
 
-.subscription-selector__option.is-selected,
-.subscription-selector__plan.is-selected {
-  border-color: var(--color-brand-500);
-  background: var(--color-neutral-100);
+.subscription-selector__option.is-selected {
+  border: 0;
+  background: transparent;
 }
 
-.subscription-selector__radio,
-.subscription-selector__plan-radio {
-  margin-top: 0.2em;
+.subscription-selector__radio {
+  margin: 0.2em 0 0;
 }
 
-.subscription-selector__option-body,
-.subscription-selector__plan-body {
+.subscription-selector__option-body {
   display: grid;
   gap: var(--spacing-xxsmall);
 }
 
-.subscription-selector__option-title,
-.subscription-selector__plan-label {
+.subscription-selector__option-title {
   font: var(--type-body-2-emphasized-font);
   letter-spacing: var(--type-body-2-emphasized-letter-spacing);
   color: var(--color-neutral-800);
 }
 
 .subscription-selector__option-caption,
-.subscription-selector__plan-meta,
-.subscription-selector__plan-description,
 .subscription-selector__unavailable-message,
 .subscription-selector__error-message,
 .subscription-selector__loading {
@@ -270,14 +260,14 @@
   color: var(--color-neutral-700);
 }
 
-.subscription-selector__plans.is-hidden,
-.subscription-selector__custom-options.is-hidden {
-  display: none;
+.subscription-selector__details {
+  margin-top: var(--spacing-medium);
 }
 
 .subscription-selector__details-list {
   margin: 0;
-  padding-left: 1.2em;
+  padding-left: 0;
+  list-style: none;
   font: var(--type-body-2-default-font);
   letter-spacing: var(--type-body-2-default-letter-spacing);
   color: var(--color-neutral-700);
