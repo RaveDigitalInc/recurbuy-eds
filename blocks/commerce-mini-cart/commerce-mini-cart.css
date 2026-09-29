@@ -1,18 +1,112 @@
 .commerce-mini-cart__update-message {
-    display: none;
-    font: var(--type-body-2-default-font);
-    letter-spacing: var(--type-body-2-default-letter-spacing);
+  display: none;
+  font: var(--type-body-2-default-font);
+  letter-spacing: var(--type-body-2-default-letter-spacing);
 }
 
 .commerce-mini-cart__message-wrapper {
-    background-color: var(--color-positive-200);
-    border-radius: var(--shape-border-radius-1);
-    padding: var(--spacing-xsmall);
-    display: none;
-    margin-bottom: var(--spacing-small);
+  background-color: var(--color-positive-200);
+  border-radius: var(--shape-border-radius-1);
+  padding: var(--spacing-xsmall);
+  display: none;
+  margin-bottom: var(--spacing-small);
 }
 
 .commerce-mini-cart__message-wrapper--visible,
 .commerce-mini-cart__update-message--visible {
-    display: block;
+  display: block;
+}
+
+/* Subscription details in mini cart line items (compact variant) */
+.cart-mini-cart .cart-subscription-details {
+  margin-top: var(--spacing-xxsmall);
+}
+
+.cart-mini-cart .cart-subscription-details:empty,
+.cart-mini-cart .cart-subscription-details[hidden] {
+  display: none;
+}
+
+.cart-mini-cart .cart-subscription-details__content {
+  display: grid;
+  gap: var(--spacing-xxsmall);
+  padding: var(--spacing-xxsmall);
+  border: var(--shape-border-width-1) solid var(--color-neutral-400);
+  border-radius: var(--shape-border-radius-1);
+  background: var(--color-neutral-50);
+}
+
+.cart-mini-cart .cart-subscription-details__badge {
+  width: fit-content;
+  font: var(--type-details-caption-1-font);
+  letter-spacing: var(--type-details-caption-1-letter-spacing);
+  color: var(--color-brand-700);
+  text-transform: uppercase;
+}
+
+.cart-mini-cart .cart-subscription-details__list {
+  margin: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.cart-mini-cart .cart-subscription-details__row {
+  display: grid;
+  grid-template-columns: minmax(0, 6.5rem) 1fr;
+  gap: var(--spacing-xxsmall);
+  align-items: baseline;
+}
+
+.cart-mini-cart .cart-subscription-details__label {
+  margin: 0;
+  font: var(--type-body-3-default-font, var(--type-body-2-default-font));
+  letter-spacing: var(--type-body-3-default-letter-spacing, var(--type-body-2-default-letter-spacing));
+  color: var(--color-neutral-700);
+}
+
+.cart-mini-cart .cart-subscription-details__value {
+  margin: 0;
+  font: var(--type-body-3-emphasized-font, var(--type-body-2-emphasized-font));
+  letter-spacing: var(--type-body-3-emphasized-letter-spacing, var(--type-body-2-emphasized-letter-spacing));
+  color: var(--color-neutral-800);
+  word-break: break-word;
+}
+
+.cart-mini-cart .cart-subscription-details--compact .cart-subscription-details__content {
+  padding: var(--spacing-xxsmall) var(--spacing-xsmall);
+}
+
+.cart-mini-cart .cart-subscription-details--compact .cart-subscription-details__row {
+  grid-template-columns: minmax(0, 5.25rem) 1fr;
+}
+
+/* Subscription ItemPrice / ItemTotal slot overrides */
+.cart-mini-cart .subscription-item-price__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--spacing-xxsmall);
+  justify-content: flex-end;
+  text-align: right;
+}
+
+.cart-mini-cart .subscription-item-price__final,
+.cart-mini-cart .subscription-item-total {
+  font: var(--type-body-2-emphasized-font);
+  letter-spacing: var(--type-body-2-emphasized-letter-spacing);
+  color: var(--color-neutral-800);
+}
+
+.cart-mini-cart .subscription-item-price__regular {
+  font: var(--type-body-3-default-font, var(--type-body-2-default-font));
+  letter-spacing: var(--type-body-3-default-letter-spacing, var(--type-body-2-default-letter-spacing));
+  color: var(--color-neutral-600);
+  text-decoration: line-through;
+}
+
+.cart-mini-cart .subscription-item-price__period {
+  font: var(--type-body-3-default-font, var(--type-body-2-default-font));
+  letter-spacing: var(--type-body-3-default-letter-spacing, var(--type-body-2-default-letter-spacing));
+  color: var(--color-neutral-700);
+  flex: 0 0 100%;
 }

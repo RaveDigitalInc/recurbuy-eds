@@ -34,6 +34,8 @@ import {
  *   selectorRoot: HTMLElement,
  *   priceRoot: HTMLElement,
  *   productPriceRoot?: HTMLElement|null,
+ *   scope?: string,
+ *   initialSelection?: import('./contract.js').SubscriptionSelection & { subscriptionOptionId?: string, planId?: string },
  *   onChange?: (selection: SubscriptionSelection, meta: {
  *     active: boolean,
  *     selectionValid: boolean,
@@ -46,6 +48,8 @@ export function mountSubscriptionOnPdp({
   selectorRoot,
   priceRoot,
   productPriceRoot = null,
+  scope,
+  initialSelection = { purchaseType: 'one_time' },
   onChange,
 }) {
   /** @type {SubscriptionEligibility|null} */
@@ -53,7 +57,13 @@ export function mountSubscriptionOnPdp({
   /** @type {SubscriptionError|null} */
   let error = null;
   /** @type {SubscriptionSelection} */
-  let selection = { purchaseType: 'one_time' };
+  let selection = {
+    purchaseType: initialSelection?.purchaseType || 'one_time',
+    planId: initialSelection?.planId || initialSelection?.subscriptionOptionId,
+    customOptionValues: {
+      ...(initialSelection?.customOptionValues || {}),
+    },
+  };
   /** @type {'idle'|'loading'|'ready'|'unavailable'|'error'|'hidden'} */
   let viewState = 'idle';
   let productValid = true;
@@ -61,6 +71,9 @@ export function mountSubscriptionOnPdp({
   let destroyed = false;
   /** @type {ReturnType<typeof setTimeout>|null} */
   let debounceTimer = null;
+
+  const scopeEventOptions = scope ? { scope } : undefined;
+  const pdpApiOptions = scope ? { scope } : undefined;
 
   const notify = () => {
     onChange?.(getSelection(), {
@@ -76,7 +89,9 @@ export function mountSubscriptionOnPdp({
   };
 
   const getStandardPrices = () => {
-    const product = /** @type {ProductModel|null} */ (events.lastPayload('pdp/data') ?? null);
+    const product = /** @type {ProductModel|null} */ (
+      events.lastPayload('pdp/data', scopeEventOptions) ?? null
+    );
     return {
       standardPrice: toMoney(product?.prices?.final),
       standardRegularPrice: toMoney(product?.prices?.regular),
@@ -197,11 +212,13 @@ export function mountSubscriptionOnPdp({
         planId: defaultPurchaseType === 'subscription' ? defaultPlanId : undefined,
         customOptionValues: {},
       };
-    } else if (eligibility.allowOneTime === false) {
+    } else if (
+      selection.purchaseType === 'subscription'
+      && eligibility.allowOneTime === false
+    ) {
       selection = {
         ...selection,
         purchaseType: 'subscription',
-        planId: selection.planId || defaultPlanId,
       };
     }
 
@@ -210,9 +227,13 @@ export function mountSubscriptionOnPdp({
   };
 
   const refreshEligibility = async () => {
-    const product = /** @type {ProductModel|null} */ (events.lastPayload('pdp/data') ?? null);
+    const product = /** @type {ProductModel|null} */ (
+      events.lastPayload('pdp/data', scopeEventOptions) ?? null
+    );
     const values = /** @type {ValuesModel|null} */ (
-      pdpApi.getProductConfigurationValues() || events.lastPayload('pdp/values') || null
+      pdpApi.getProductConfigurationValues(pdpApiOptions)
+      || events.lastPayload('pdp/values', scopeEventOptions)
+      || null
     );
 
     if (!product?.sku) {
@@ -221,7 +242,7 @@ export function mountSubscriptionOnPdp({
       return;
     }
 
-    const request = buildEligibilityRequest(product, values);
+    const request = buildEligibilityRequest(product, values, initialSelection);
     requestSeq += 1;
     const seq = requestSeq;
     viewState = 'loading';
@@ -245,24 +266,40 @@ export function mountSubscriptionOnPdp({
     render();
   };
 
+  const eventOptions = scope
+  ? { eager: true, scope }
+  : { eager: true };
+
   const dataListener = events.on('pdp/data', () => {
     scheduleRefresh();
-  }, { eager: true });
+  }, eventOptions);
 
   const valuesListener = events.on('pdp/values', () => {
     scheduleRefresh();
-  }, { eager: true });
+  }, eventOptions);
 
-  const validListener = events.on('pdp/valid', onValid, { eager: true });
+  const validListener = events.on('pdp/valid', onValid, eventOptions);
 
   function getSelection() {
     if (!isActive() || selection.purchaseType !== 'subscription') {
       return { purchaseType: 'one_time' };
     }
 
+    const selectedPlan = eligibility?.plans?.find((plan) => plan.id === selection.planId)
+      || eligibility?.plans?.[0]
+      || null;
+
+    const price = selectedPlan?.prices?.initial || selectedPlan?.prices?.regular;
+
     return {
       purchaseType: 'subscription',
       planId: selection.planId,
+      selectedPlan,
+      planSnapshot: selectedPlan ? {
+        planLabel: selectedPlan.label,
+        period: selectedPlan.period,
+        price,
+      } : undefined,
       customOptionValues: { ...(selection.customOptionValues || {}) },
     };
   }
@@ -307,18 +344,37 @@ export function mountSubscriptionOnPdp({
 /**
  * @param {ProductModel} product
  * @param {ValuesModel|null} values
- * @returns {import('./contract.js').SubscriptionEligibilityRequest}
+ * @param {import('./contract.js').SubscriptionSelection} [initialSelection]
+ * @returns {import('./contract.js').SubscriptionEligibilityRequest & Record<string, any>}
  */
-function buildEligibilityRequest(product, values) {
+function buildEligibilityRequest(product, values, initialSelection) {
   const parentSku = product.sku;
   const sku = values?.sku || product.variantSku || product.sku;
+  const productType = resolveProductType(product);
+
+  // Извлекаем редактируемый план (для mini-PDP редактирования корзины)
+  const planId = initialSelection?.planId || initialSelection?.subscriptionOptionId;
+  const isEditing = initialSelection?.purchaseType === 'subscription' || Boolean(planId);
+
+  // Извлечение опций комплектов (Bundle v1)
+  const bundleOptions = productType === 'bundle'
+    ? (values?.bundleSelections || product.bundleOptions || null)
+    : undefined;
 
   return {
     sku,
     parentSku: sku !== parentSku ? parentSku : undefined,
-    productType: resolveProductType(product),
+    productType,
     quantity: values?.quantity,
     optionsUIDs: values?.optionsUIDs,
+    // Добавленные новые свойства по требованиям задачи
+    productId: product.externalId ? Number(product.externalId) : undefined,
+    product: {
+      externalId: product.externalId ? String(product.externalId) : undefined,
+    },
+    ...(planId && { subscriptionOptionId: planId }),
+    ...(isEditing && { context: 'edit_item' }),
+    ...(bundleOptions && { bundleOptions }),
   };
 }
 
@@ -340,7 +396,7 @@ function resolveProductType(product) {
     return 'grouped';
   }
 
-  // 3. Configurable Product (наличие сгенерированного variantSku или массива вариантов/атрибутов)
+  // 3. Configurable Product
   const isConfigurable = Boolean(product.variantSku)
     || product.__typename === 'ConfigurableProduct'
     || (Array.isArray(product.variants) && product.variants.length > 0);

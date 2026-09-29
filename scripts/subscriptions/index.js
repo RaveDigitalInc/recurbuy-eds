@@ -5,11 +5,12 @@ export {
 export { SubscriptionGateway } from './gateway.js';
 export { CartPayloadAdapter } from './cart-payload-adapter.js';
 export {
-  getSubscriptionDataSource,
-  getSubscriptionEndpoint,
-  getSubscriptionFetchMethod,
+  getSubscriptionStorefrontUrl,
+  getSubscriptionConnectionToken,
+  getSubscriptionStoreId,
+  getSubscriptionWebsiteId,
   getSubscriptionTimeoutMs,
-  shouldUseLocalFixtures,
+  getValidSubscriptionConfig,
 } from './config.js';
 export {
   formatDiscount,

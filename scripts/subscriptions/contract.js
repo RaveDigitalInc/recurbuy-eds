@@ -65,9 +65,10 @@
 
 /**
  * @typedef {Object} SubscriptionEligibilityRequest
+ * @property {string} [productId]
  * @property {string} sku
  * @property {string} [parentSku]
- * @property {ProductType} productType
+ * @property {ProductType} [productType]
  * @property {number} [quantity]
  * @property {string[]} [optionsUIDs]
  * @property {Record<string, string>} [enteredOptions]
@@ -77,6 +78,7 @@
 
 /**
  * @typedef {Object} SubscriptionEligibility
+ * @property {string} [productId]
  * @property {string} sku
  * @property {string} [parentSku]
  * @property {ProductType} productType
@@ -93,12 +95,38 @@
  * @typedef {Object} SubscriptionSelection
  * @property {PurchaseType} purchaseType
  * @property {string} [planId]
+ * @property {string} [subscriptionOptionId]
+ * @property {SubscriptionPlan} [selectedPlan]
  * @property {Record<string, string>} [customOptionValues]
+ */
+
+/**
+ * Контекст товара/корзины для формирования пейлоада добавления в корзину/оформления заказа
+ * @typedef {Object} SubscriptionCartContext
+ * @property {string} [productId]
+ * @property {string} [sku]
+ * @property {string} [parentSku]
+ * @property {number} [quantity]
+ * @property {string[]} [optionsUIDs]
+ * @property {SubscriptionPlan} [selectedPlan]
+ */
+
+/**
+ * Строго типизированный запрос на обогащение элемента корзины (для CartPayloadAdapter)
+ * @typedef {Object} SubscriptionEnrichmentRequest
+ * @property {string} [productId]
+ * @property {string} sku
+ * @property {number} quantity
+ * @property {string[]} [optionsUIDs]
+ * @property {SubscriptionSelection} selection
+ * @property {SubscriptionCartContext} [context]
+ * @property {string} [subscriptionOptionId]
  */
 
 /**
  * @typedef {Object} CartSubscriptionDetails
  * @property {string} planId
+ * @property {string} [subscriptionOptionId]
  * @property {string} planLabel
  * @property {SubscriptionPeriod} period
  * @property {MoneyAmount} price
@@ -120,20 +148,6 @@
 /**
  * @typedef {Object} SubscriptionEligibilityResponse
  * @property {SubscriptionEligibility} [data]
- * @property {SubscriptionError} [error]
- */
-
-/**
- * @typedef {Object} CartSubscriptionDetailsRequest
- * @property {string} sku
- * @property {string} [parentSku]
- * @property {string} [cartItemUid]
- * @property {string} [planId]
- */
-
-/**
- * @typedef {Object} CartSubscriptionDetailsResponse
- * @property {CartSubscriptionDetails} [data]
  * @property {SubscriptionError} [error]
  */
 

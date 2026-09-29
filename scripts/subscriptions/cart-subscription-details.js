@@ -1,4 +1,3 @@
-import { SubscriptionGateway } from './gateway.js';
 import { formatMoney, formatPeriod } from './format.js';
 import {
   getSelectionForCartItem,
@@ -13,7 +12,6 @@ import {
 
 /**
  * Renders subscription details for a cart item.
- * Kept separate from catalog attributes (ProductAttributes).
  * @param {HTMLElement} root
  * @param {CartSubscriptionDetails|null|undefined} details
  */
@@ -80,8 +78,9 @@ export function clearCartSubscriptionDetails(root) {
 }
 
 /**
- * Fetches subscription details for a cart item via gateway.
- * Event bus is only a refresh trigger; gateway remains the data source.
+ * Reads subscription details snapshot for a cart item from stored selection.
+ * No gateway catalog lookup is performed. Returns null if snapshot is missing.
+ *
  * @param {{
  *   uid?: string,
  *   sku?: string,
@@ -91,7 +90,7 @@ export function clearCartSubscriptionDetails(root) {
  * @returns {Promise<CartSubscriptionDetails|null>}
  */
 export async function fetchCartItemSubscriptionDetails(item) {
-  if (!item?.sku && !item?.topLevelSku) return null;
+  if (!item) return null;
 
   const selection = getSelectionForCartItem(item);
   if (!selection || selection.purchaseType !== 'subscription' || !selection.planId) {
@@ -102,19 +101,21 @@ export async function fetchCartItemSubscriptionDetails(item) {
     saveSelectionForUid(item.uid, selection);
   }
 
-  const sku = item.sku || item.topLevelSku;
-  const response = await SubscriptionGateway.getCartSubscriptionDetails({
-    sku,
-    parentSku: item.topLevelSku && item.topLevelSku !== sku ? item.topLevelSku : undefined,
-    cartItemUid: item.uid,
-    planId: selection.planId,
-  });
+  const snapshot = selection.planSnapshot;
 
-  if (response.error || !response.data) {
+  // Если snapshot отсутствует, возвращаем null (плашка подписки в корзине скрывается)
+  if (!snapshot) {
     return null;
   }
 
-  return response.data;
+  return {
+    purchaseType: 'subscription',
+    planId: selection.planId,
+    planLabel: snapshot.planLabel || `Plan ${selection.planId}`,
+    period: snapshot.period || { value: 1, unit: 'month' },
+    price: snapshot.price || { value: 0, currency: 'USD' },
+    startDate: snapshot.startDate,
+  };
 }
 
 /**

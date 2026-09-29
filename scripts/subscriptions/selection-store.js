@@ -8,7 +8,14 @@ import { SUBSCRIPTION_CUSTOM_FIELD_KEY } from './contract.js';
 const STORAGE_KEY = 'recurbuy.subscription.selections';
 
 /**
- * @typedef {import('./contract.js').SubscriptionSelection} SubscriptionSelection
+ * @typedef {import('./contract.js').SubscriptionSelection & {
+ *   planSnapshot?: {
+ *     planLabel?: string,
+ *     period?: import('./contract.js').SubscriptionPeriod,
+ *     price?: import('./contract.js').MoneyAmount,
+ *     startDate?: string,
+ *   }
+ * }} SubscriptionSelection
  */
 
 /**
@@ -60,6 +67,7 @@ export function saveSelectionForSku(sku, selection) {
       purchaseType: 'subscription',
       planId: selection.planId,
       customOptionValues: { ...(selection.customOptionValues || {}) },
+      ...(selection.planSnapshot && { planSnapshot: { ...selection.planSnapshot } }),
     };
   }
   writeStore(store);
@@ -80,6 +88,7 @@ export function saveSelectionForUid(uid, selection) {
       purchaseType: 'subscription',
       planId: selection.planId,
       customOptionValues: { ...(selection.customOptionValues || {}) },
+      ...(selection.planSnapshot && { planSnapshot: { ...selection.planSnapshot } }),
     };
   }
   writeStore(store);
@@ -165,5 +174,6 @@ function parseSelectionFromCustomFields(customFields) {
     customOptionValues: /** @type {Record<string, string>|undefined} */ (
       payload.customOptionValues
     ),
+    planSnapshot: typeof payload.planSnapshot === 'object' ? payload.planSnapshot : undefined,
   };
 }

@@ -272,10 +272,21 @@ export default async function decorate(block) {
           const productData = events.lastPayload('pdp/data') ?? product;
 
           // Enrich payload with subscription data
+          const selection = subscriptionController.getSelection();
+          const eligibility = subscriptionController.getEligibility?.() ?? null;
+
+          // Резолвим selectedPlan: берем из selection или ищем в eligibility.plans по planId
+          const selectedPlan = selection?.selectedPlan
+            || eligibility?.plans?.find((plan) => plan.id === selection?.planId)
+            || null;
+
           const cartItem = CartPayloadAdapter.enrich(
             values || { sku: productData?.sku, quantity: 1 },
-            subscriptionController.getSelection(),
-            { parentSku: productData?.sku },
+            selection,
+            {
+              parentSku: productData?.sku,
+              selectedPlan,
+            },
           );
 
           if (isUpdateMode) {

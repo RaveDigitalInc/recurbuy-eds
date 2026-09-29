@@ -8,17 +8,12 @@ import { saveSelectionForSku } from './selection-store.js';
 
 /**
  * Merges Adobe PDP cart item values with subscription metadata for add-to-cart.
- * Keeps Commerce cart mutation shape stable while the backend contract evolves.
- *
- * Until CartItemInput accepts subscription fields, selection is mirrored to
- * session storage (see selection-store.js) so Cart can render mock details.
- * Do not put unknown keys into the mutation payload — GraphQL will reject them.
  */
 export const CartPayloadAdapter = {
   /**
    * @param {ValuesModel|null|undefined} configurationValues
    * @param {SubscriptionSelection|null|undefined} selection
-   * @param {{ parentSku?: string }} [options]
+   * @param {{ parentSku?: string, selectedPlan?: import('./contract.js').SubscriptionPlan }} [options]
    * @returns {ValuesModel & { parentSku?: string }}
    */
   enrich(configurationValues, selection, options = {}) {
@@ -49,18 +44,27 @@ export const CartPayloadAdapter = {
       throw new Error('Subscription plan ID is required for subscription purchase.');
     }
 
-    saveSelectionForSku(sku, selection);
+    // Формируем planSnapshot, если выбранный план передан в опциях или присутствует в selection
+    const plan = options.selectedPlan;
+    const enrichedSelection = {
+      ...selection,
+      planSnapshot: selection.planSnapshot || (plan ? {
+        planLabel: plan.label,
+        period: plan.period,
+        price: plan.prices?.initial || plan.prices?.regular,
+      } : undefined),
+    };
+
+    saveSelectionForSku(sku, enrichedSelection);
     if (parentSku && parentSku !== sku) {
-      saveSelectionForSku(parentSku, selection);
+      saveSelectionForSku(parentSku, enrichedSelection);
     }
 
-    // Mutation stays Commerce-compatible. Selection lives in session store until
-    // backend CartItemInput / cart item fields exist (see toCustomFields()).
     return base;
   },
 
   /**
-   * Builds the future cart mutation customFields payload (not used until schema ready).
+   * Builds the future cart mutation customFields payload.
    * @param {SubscriptionSelection|null|undefined} selection
    * @returns {Record<string, unknown>|undefined}
    */
@@ -74,6 +78,7 @@ export const CartPayloadAdapter = {
         purchaseType: selection.purchaseType,
         planId: selection.planId,
         customOptionValues: selection.customOptionValues || {},
+        ...(selection.planSnapshot && { planSnapshot: selection.planSnapshot }),
       },
     };
   },
@@ -100,6 +105,7 @@ export const CartPayloadAdapter = {
       customOptionValues: /** @type {Record<string, string>|undefined} */ (
         payload.customOptionValues
       ),
+      planSnapshot: typeof payload.planSnapshot === 'object' ? payload.planSnapshot : undefined,
     };
   },
 };

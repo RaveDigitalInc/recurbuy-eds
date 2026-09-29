@@ -3,27 +3,35 @@ import { getConfigValue } from '@dropins/tools/lib/aem/configs.js';
 const DEFAULT_TIMEOUT_MS = 10000;
 
 /**
- * @returns {'local'|'remote'}
+ * @returns {string|undefined}
  */
-export function getSubscriptionDataSource() {
-  const source = getConfigValue('subscriptions-data-source');
-  if (source === 'remote') return 'remote';
-  return 'local';
+export function getSubscriptionStorefrontUrl() {
+  const url = getConfigValue('subscriptions-storefront-url');
+  return url?.trim() ? url.trim() : undefined;
 }
 
 /**
  * @returns {string|undefined}
  */
-export function getSubscriptionEndpoint() {
-  return getConfigValue('subscriptions-endpoint');
+export function getSubscriptionConnectionToken() {
+  const token = getConfigValue('subscriptions-connection-token');
+  return token?.trim() ? token.trim() : undefined;
 }
 
 /**
- * @returns {'GET'|'POST'}
+ * @returns {string|undefined}
  */
-export function getSubscriptionFetchMethod() {
-  const method = getConfigValue('subscriptions-fetch-method');
-  return method === 'POST' ? 'POST' : 'GET';
+export function getSubscriptionStoreId() {
+  const storeId = getConfigValue('subscriptions-store-id');
+  return storeId?.trim() ? storeId.trim() : undefined;
+}
+
+/**
+ * @returns {string|undefined}
+ */
+export function getSubscriptionWebsiteId() {
+  const websiteId = getConfigValue('subscriptions-website-id');
+  return websiteId?.trim() ? websiteId.trim() : undefined;
 }
 
 /**
@@ -35,8 +43,31 @@ export function getSubscriptionTimeoutMs() {
 }
 
 /**
- * @returns {boolean}
+ * Проверяет обязательные параметры конфигурации.
+ * Если URL, Token или Store ID отсутствуют или пусты, выбрасывает ошибку (не скрывает ошибку под фикстуры).
+ * 
+ * @returns {{ storefrontUrl: string, connectionToken: string, storeId: string, websiteId?: string }}
+ * @throws {Error} Если хотя бы один обязательный параметр отсутствует
  */
-export function shouldUseLocalFixtures() {
-  return getSubscriptionDataSource() === 'local' || !getSubscriptionEndpoint();
+export function getValidSubscriptionConfig() {
+  const storefrontUrl = getSubscriptionStorefrontUrl();
+  const connectionToken = getSubscriptionConnectionToken();
+  const storeId = getSubscriptionStoreId();
+  const websiteId = getSubscriptionWebsiteId();
+
+  if (!storefrontUrl || !connectionToken || !storeId) {
+    const missing = [];
+    if (!storefrontUrl) missing.push('subscriptions-storefront-url');
+    if (!connectionToken) missing.push('subscriptions-connection-token');
+    if (!storeId) missing.push('subscriptions-store-id');
+
+    throw new Error(`[Subscriptions Selector Error] Invalid configuration: Missing or empty required keys: ${missing.join(', ')}`);
+  }
+
+  return {
+    storefrontUrl,
+    connectionToken,
+    storeId,
+    ...(websiteId && { websiteId }),
+  };
 }

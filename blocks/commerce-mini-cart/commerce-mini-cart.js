@@ -19,6 +19,16 @@ import '../../scripts/initializers/cart.js';
 import { readBlockConfig } from '../../scripts/aem.js';
 import { fetchPlaceholders, rootLink } from '../../scripts/commerce.js';
 
+import { renderCustomAttributes } from '../../scripts/helpers/custom-attributes.js';
+import {
+  syncCartSubscriptionDetails,
+  fetchCartItemSubscriptionDetails,
+  renderCartSubscriptionDetails,
+  clearCartSubscriptionDetails,
+  formatMoney,
+  formatPeriod,
+} from '../../scripts/subscriptions/index.js';
+
 export default async function decorate(block) {
   const {
     'start-shopping-url': startShoppingURL = '',
@@ -39,6 +49,10 @@ export default async function decorate(block) {
   // Modal state
   let currentModal = null;
   let currentCartNotification = null;
+
+  const subscriptionDetailsByUid = new Map();
+  const subscriptionPriceSlotsByUid = new Map();
+  const subscriptionTotalSlotsByUid = new Map();
 
   // Create a container for the update message
   const updateMessage = document.createElement('div');
@@ -132,7 +146,93 @@ export default async function decorate(block) {
     }
   }
 
+  const isSubscription = (details) => details?.purchaseType === 'subscription' && details.price;
+
+  const renderSubscriptionPrice = (ctx, details, item) => {
+    if (!ctx || !isSubscription(details)) return;
+
+    const row = document.createElement('span');
+    row.className = 'subscription-item-price__row';
+
+    const regularPrice = item?.regularPrice;
+    const hasSavings = regularPrice
+      && typeof regularPrice.value === 'number'
+      && regularPrice.value > details.price.value;
+
+    if (hasSavings) {
+      const regularPriceElement = document.createElement('span');
+      regularPriceElement.className = 'subscription-item-price__regular';
+      regularPriceElement.setAttribute('aria-label', 'Regular price');
+      regularPriceElement.textContent = formatMoney(regularPrice);
+      row.appendChild(regularPriceElement);
+    }
+
+    const priceElement = document.createElement('span');
+    priceElement.className = 'subscription-item-price__final';
+    priceElement.setAttribute('aria-label', 'Subscription price');
+    priceElement.textContent = formatMoney(details.price);
+    row.appendChild(priceElement);
+
+    const periodLabel = details.period ? formatPeriod(details.period) : '';
+    if (periodLabel) {
+      const periodElement = document.createElement('span');
+      periodElement.className = 'subscription-item-price__period';
+      periodElement.textContent = periodLabel;
+      row.appendChild(periodElement);
+    }
+
+    ctx.replaceWith(row);
+  };
+
+  const renderSubscriptionTotal = (ctx, details, quantity) => {
+    if (!ctx || !isSubscription(details) || typeof quantity !== 'number') return;
+
+    const totalElement = document.createElement('span');
+    totalElement.className = 'subscription-item-total';
+    totalElement.textContent = formatMoney({
+      value: details.price.value * quantity,
+      currency: details.price.currency,
+    });
+
+    ctx.replaceWith(totalElement);
+  };
+
+  const applySubscriptionPrices = (uid, details, item) => {
+    if (!uid || !isSubscription(details)) return;
+
+    const priceSlot = subscriptionPriceSlotsByUid.get(uid);
+    if (priceSlot) {
+      renderSubscriptionPrice(priceSlot.ctx, details, item || priceSlot.item);
+    }
+
+    const totalSlot = subscriptionTotalSlotsByUid.get(uid);
+    if (totalSlot) {
+      const quantity = item?.quantity ?? totalSlot.item?.quantity;
+      renderSubscriptionTotal(totalSlot.ctx, details, quantity);
+    }
+  };
+
+  const refreshSubscriptionDetails = async (items) => {
+    try {
+      const next = await syncCartSubscriptionDetails(items, subscriptionDetailsByUid);
+      subscriptionDetailsByUid.clear();
+      next.forEach((details, uid) => {
+        subscriptionDetailsByUid.set(uid, details);
+        applySubscriptionPrices(uid, details);
+      });
+    } catch (error) {
+      console.error('Error syncing cart subscription details:', error);
+    }
+  };
+
   // Add event listeners for cart updates
+  events.on(
+    'cart/data',
+    (cartData) => {
+      refreshSubscriptionDetails(cartData?.items);
+    },
+    { eager: true },
+  );
   events.on('cart/product/added', () => showMessage(MESSAGES.ADDED), {
     eager: true,
   });
@@ -204,7 +304,72 @@ export default async function decorate(block) {
           ctx.appendChild(editLinkContainer);
         }
       },
+      ItemPrice: (ctx) => {
+        const { item } = ctx;
+        const uid = item?.uid;
+        if (!uid) return;
+
+        subscriptionPriceSlotsByUid.set(uid, { ctx, item });
+        applySubscriptionPrices(uid, subscriptionDetailsByUid.get(uid), item);
+      },
+
+      ItemTotal: (ctx) => {
+        const { item } = ctx;
+        const uid = item?.uid;
+        if (!uid) return;
+
+        subscriptionTotalSlotsByUid.set(uid, { ctx, item });
+        applySubscriptionPrices(uid, subscriptionDetailsByUid.get(uid), item);
+      },
+
+      ProductAttributes: (ctx) => {
+        const { item } = ctx;
+        const uid = item?.uid;
+  
+        const attributesWrapper = document.createElement('div');
+        renderCustomAttributes(
+          attributesWrapper,
+          item?.productAttributes ?? [],
+          'cart',
+          { sku: item?.sku },
+        );
+        ctx.appendChild(attributesWrapper);
+  
+        // Dedicated container for subscription metadata to avoid layout collisions
+        let subscriptionRoot = ctx.querySelector('.cart-subscription-details');
+        if (!subscriptionRoot) {
+          subscriptionRoot = document.createElement('div');
+          subscriptionRoot.className = 'cart-subscription-details cart-subscription-details--compact';
+          ctx.appendChild(subscriptionRoot);
+        }
+  
+        // Render synchronously from cache if available
+        const cachedDetails = uid ? subscriptionDetailsByUid.get(uid) : null;
+        if (cachedDetails) {
+          renderCartSubscriptionDetails(subscriptionRoot, cachedDetails);
+          return;
+        }
+  
+        // Fallback async fetch with node connectivity check
+        fetchCartItemSubscriptionDetails(item)
+          .then((details) => {
+            if (!subscriptionRoot.isConnected) return;
+            if (details && uid) {
+              subscriptionDetailsByUid.set(uid, details);
+              renderCartSubscriptionDetails(subscriptionRoot, details);
+              applySubscriptionPrices(uid, details, item);
+            } else {
+              clearCartSubscriptionDetails(subscriptionRoot);
+            }
+          })
+          .catch(() => {
+            if (subscriptionRoot.isConnected) {
+              clearCartSubscriptionDetails(subscriptionRoot);
+            }
+          });
+      },
     },
+
   })(block);
 
   // Find the products container and add the message div at the top
