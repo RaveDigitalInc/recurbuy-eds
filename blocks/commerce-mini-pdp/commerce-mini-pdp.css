@@ -119,6 +119,13 @@
     display: none;
 }
 
+#mini-pdp-modal .mini-pdp__subscription-price {
+    grid-column: 1 / span 4;
+    margin-top: var(--spacing-xsmall);
+    margin-bottom: var(--spacing-small);
+    color: var(--color-neutral-800);
+}
+
 #mini-pdp-modal .mini-pdp__subscription-price:empty,
 #mini-pdp-modal .mini-pdp__subscription-price[hidden] {
     display: none;
@@ -132,13 +139,6 @@
 #mini-pdp-modal .mini-pdp__subscription:empty,
 #mini-pdp-modal .mini-pdp__subscription .subscription-selector[hidden] {
     display: none;
-}
-
-#mini-pdp-modal .mini-pdp__subscription-price {
-    grid-column: 1 / span 4;
-    margin-top: var(--spacing-xsmall);
-    margin-bottom: var(--spacing-small);
-    color: var(--color-neutral-800);
 }
 
 #mini-pdp-modal .mini-pdp__subscription-price .subscription-price-box {
@@ -186,16 +186,17 @@
         margin-top: calc(var(--spacing-xsmall) * -1);
     }
 
-    #mini-pdp-modal .mini-pdp__subscription {
-        grid-column: 1 / -1;
-        grid-row: 3;
-        margin-top: var(--spacing-xsmall);
-    }
-
     #mini-pdp-modal .mini-pdp__subscription-price {
         grid-column: 1 / -1;
-        grid-row: 4;
+        grid-row: 3;
         margin-top: 0;
+        margin-bottom: 0;
+    }
+
+    #mini-pdp-modal .mini-pdp__subscription {
+        grid-column: 1 / -1;
+        grid-row: 4;
+        margin-top: var(--spacing-xsmall);
         margin-bottom: var(--spacing-small);
     }
 

@@ -139,3 +139,40 @@
   letter-spacing: var(--type-body-2-emphasized-letter-spacing);
   color: var(--color-neutral-800);
 }
+
+.cart-subscription-details__note {
+  display: block;
+  margin-top: 2px;
+  font: var(--type-body-2-default-font);
+  letter-spacing: var(--type-body-2-default-letter-spacing);
+  color: var(--color-neutral-700);
+  font-weight: 400;
+}
+
+.commerce-cart .subscription-item-price__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--spacing-xxsmall);
+}
+
+.commerce-cart .subscription-item-price__final,
+.commerce-cart .subscription-item-total {
+  font: var(--type-body-2-emphasized-font);
+  letter-spacing: var(--type-body-2-emphasized-letter-spacing);
+  color: var(--color-neutral-800);
+}
+
+.commerce-cart .subscription-item-price__regular {
+  font: var(--type-body-3-default-font, var(--type-body-2-default-font));
+  letter-spacing: var(--type-body-3-default-letter-spacing, var(--type-body-2-default-letter-spacing));
+  color: var(--color-neutral-600);
+  text-decoration: line-through;
+}
+
+.commerce-cart .subscription-item-price__period {
+  font: var(--type-body-3-default-font, var(--type-body-2-default-font));
+  letter-spacing: var(--type-body-3-default-letter-spacing, var(--type-body-2-default-letter-spacing));
+  color: var(--color-neutral-700);
+  flex: 0 0 100%;
+}

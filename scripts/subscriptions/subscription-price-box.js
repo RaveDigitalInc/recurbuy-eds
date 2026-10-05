@@ -36,6 +36,7 @@ export function renderSubscriptionPriceBox(root, state) {
 
   root.className = 'subscription-price-box';
   root.hidden = false;
+  root.classList.remove('is-updating');
 
   if (purchaseType === 'subscription' && plan) {
     const displayPrice = getPlanDisplayPrice(plan);
@@ -57,15 +58,10 @@ export function renderSubscriptionPriceBox(root, state) {
         ${periodLabel ? `
           <span class="subscription-price-box__period">${periodLabel}</span>
         ` : ''}
+        ${saving ? `<span class="subscription-price-box__saving">${saving}</span>` : ''}
       </div>
-      ${saving ? `<div class="subscription-price-box__saving">${saving}</div>` : ''}
-      ${plan.prices?.initial && showStrike ? `
-        <div class="subscription-price-box__caption">
-          First payment ${formatMoney(plan.prices.initial, locale)}, then
-          ${formatMoney(plan.prices.regular, locale)} ${periodLabel}
-        </div>
-      ` : ''}
     `;
+    playPriceUpdate(root);
     return;
   }
 
@@ -89,6 +85,16 @@ export function renderSubscriptionPriceBox(root, state) {
       </span>
     </div>
   `;
+  playPriceUpdate(root);
+}
+
+/**
+ * @param {HTMLElement} root
+ */
+function playPriceUpdate(root) {
+  root.classList.remove('is-updating');
+  root.getBoundingClientRect();
+  root.classList.add('is-updating');
 }
 
 /**
