@@ -11,7 +11,6 @@ import {
   provider as UI,
 } from '@dropins/tools/components.js';
 import { h } from '@dropins/tools/preact.js';
-import * as Cart from '@dropins/storefront-cart/api.js';
 
 // PDP Containers for Mini PDP
 import ProductPrice from '@dropins/storefront-pdp/containers/ProductPrice.js';
@@ -31,6 +30,7 @@ import {
   mountSubscriptionOnPdp,
 } from '../../scripts/subscriptions/index.js';
 import { getSelectionForCartItem } from '../../scripts/subscriptions/selection-store.js';
+import { updateCartItemWithSubscription } from '../../scripts/subscriptions/subscription-add-to-cart.js';
 
 import { loadCSS } from '../../scripts/aem.js';
 
@@ -114,8 +114,8 @@ export default async function createMiniPDP(cartItem, onUpdate, onClose) {
           </a>
         </div>
         <div class="mini-pdp__price"></div>
-        <div class="mini-pdp__subscription"></div>
         <div class="mini-pdp__subscription-price"></div>
+        <div class="mini-pdp__subscription"></div>
         <div class="mini-pdp__left-column">
           <div class="mini-pdp__gallery"></div>
         </div>
@@ -242,34 +242,28 @@ export default async function createMiniPDP(cartItem, onUpdate, onClose) {
               throw new Error('Please select all required options');
             }
 
-            // Update cart item with new configuration
+            const catalogProductId = product?.externalId || product?.id;
             const selection = subscriptionController.getSelection();
-            const eligibility = subscriptionController.getEligibility?.() ?? null;
-
-            // Резолвим selectedPlan: берем из selection или ищем в eligibility.plans по planId
-            const selectedPlan = selection?.selectedPlan
-              || eligibility?.plans?.find((plan) => plan.id === selection?.planId)
-              || null;
-
             const cartItemData = CartPayloadAdapter.enrich(
               values,
               selection,
               {
                 parentSku: sku,
-                selectedPlan,
+                selectedPlan: selection?.selectedPlan,
               },
             );
-
             const updateData = {
               ...cartItemData,
-              uid: cartItem.uid,
+              sku: cartItemData.sku || sku,
             };
 
-            const updateResponse = await Cart.updateProductsFromCart([
-              updateData,
-            ]);
+            const updateResponse = await updateCartItemWithSubscription({
+              cartItem: updateData,
+              itemUid: cartItem.uid,
+              selection,
+              catalogProductId,
+            });
 
-            // Trigger cart refresh to ensure UI updates
             events.emit('cart/updated', updateResponse);
 
             inlineAlert?.remove();

@@ -21,7 +21,6 @@ import ProductShortDescription from '@dropins/storefront-pdp/containers/ProductS
 import ProductOptions from '@dropins/storefront-pdp/containers/ProductOptions.js';
 import ProductQuantity from '@dropins/storefront-pdp/containers/ProductQuantity.js';
 import ProductDescription from '@dropins/storefront-pdp/containers/ProductDescription.js';
-import ProductAttributes from '@dropins/storefront-pdp/containers/ProductAttributes.js';
 import ProductGallery from '@dropins/storefront-pdp/containers/ProductGallery.js';
 
 // Libs
@@ -35,11 +34,14 @@ import {
 import { IMAGES_SIZES } from '../../scripts/initializers/pdp.js';
 import '../../scripts/initializers/cart.js';
 import '../../scripts/initializers/wishlist.js';
-import { renderCustomAttributes } from '../../scripts/helpers/custom-attributes.js';
 import {
   CartPayloadAdapter,
   mountSubscriptionOnPdp,
 } from '../../scripts/subscriptions/index.js';
+import {
+  addToCartWithSubscription,
+  updateCartItemWithSubscription,
+} from '../../scripts/subscriptions/subscription-add-to-cart.js';
 
 // Function to update the Add to Cart button text
 function updateAddToCartButtonText(addToCartInstance, inCart, labels) {
@@ -87,9 +89,9 @@ export default async function decorate(block) {
         <div class="product-details__header"></div>
         <div class="product-details__price"></div>
         <div class="product-details__subscription-price"></div>
+        <div class="product-details__subscription"></div>
         <div class="product-details__gallery"></div>
         <div class="product-details__short-description"></div>
-        <div class="product-details__subscription"></div>
         <div class="product-details__configuration">
           <div class="product-details__options"></div>
           <div class="product-details__quantity"></div>
@@ -99,7 +101,6 @@ export default async function decorate(block) {
           </div>
         </div>
         <div class="product-details__description"></div>
-        <div class="product-details__attributes"></div>
       </div>
     </div>
   `);
@@ -117,7 +118,6 @@ export default async function decorate(block) {
   const $addToCart = fragment.querySelector('.product-details__buttons__add-to-cart');
   const $wishlistToggleBtn = fragment.querySelector('.product-details__buttons__add-to-wishlist');
   const $description = fragment.querySelector('.product-details__description');
-  const $attributes = fragment.querySelector('.product-details__attributes');
 
   block.replaceChildren(fragment);
 
@@ -167,7 +167,6 @@ export default async function decorate(block) {
     _options,
     _quantity,
     _description,
-    _attributes,
     wishlistToggleBtn,
   ] = await Promise.all([
     // Gallery (Mobile)
@@ -226,22 +225,6 @@ export default async function decorate(block) {
     // Description
     pdpRendered.render(ProductDescription, {})($description),
 
-    // Attributes
-    pdpRendered.render(ProductAttributes, {
-      slots: {
-        Attributes: (ctx) => {
-          const wrapper = document.createElement('div');
-          wrapper.className = 'product-details__custom-attributes-wrapper';
-
-          const attributesData = ctx.data?.attributes ?? [];
-          const skuData = ctx.data?.sku;
-
-          renderCustomAttributes(wrapper, attributesData, 'pdp', { sku: skuData });
-          ctx.appendChild(wrapper);
-        },
-      },
-    })($attributes),
-
     // Wishlist button - WishlistToggle Container
     wishlistRender.render(WishlistToggle, {
       product,
@@ -270,32 +253,25 @@ export default async function decorate(block) {
 
         if (valid && selectionValid) {
           const productData = events.lastPayload('pdp/data') ?? product;
+          const catalogProductId = productData?.externalId || product?.externalId;
 
-          // Enrich payload with subscription data
           const selection = subscriptionController.getSelection();
-          const eligibility = subscriptionController.getEligibility?.() ?? null;
-
-          // Резолвим selectedPlan: берем из selection или ищем в eligibility.plans по planId
-          const selectedPlan = selection?.selectedPlan
-            || eligibility?.plans?.find((plan) => plan.id === selection?.planId)
-            || null;
-
           const cartItem = CartPayloadAdapter.enrich(
             values || { sku: productData?.sku, quantity: 1 },
             selection,
             {
               parentSku: productData?.sku,
-              selectedPlan,
+              selectedPlan: selection?.selectedPlan,
             },
           );
 
           if (isUpdateMode) {
-            // --- Update existing item ---
-            const { updateProductsFromCart } = await import(
-              '@dropins/storefront-cart/api.js'
-            );
-
-            await updateProductsFromCart([{ ...cartItem, uid: itemUidFromUrl }]);
+            await updateCartItemWithSubscription({
+              cartItem,
+              itemUid: itemUidFromUrl,
+              selection,
+              catalogProductId,
+            });
 
             const updatedSku = cartItem?.sku;
             if (updatedSku) {
@@ -312,10 +288,11 @@ export default async function decorate(block) {
           }
 
           // --- Add new item ---
-          const { addProductsToCart } = await import(
-            '@dropins/storefront-cart/api.js'
-          );
-          await addProductsToCart([cartItem]);
+          await addToCartWithSubscription({
+            cartItem,
+            selection,
+            catalogProductId,
+          });
         }
 
         inlineAlert?.remove();

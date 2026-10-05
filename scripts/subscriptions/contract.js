@@ -1,6 +1,5 @@
 /**
- * Mock subscription API contract shared by UI, gateway, and cart adapters.
- * Replace the DummyJSON adapter with a SaaS implementation without changing these shapes.
+ * Subscription shapes shared by the PDP selector, storefront adapters, and cart UI.
  */
 
 /** @typedef {'day'|'week'|'month'|'year'} PeriodUnit */
@@ -41,10 +40,6 @@
  */
 
 /**
- * @typedef {'simple'|'configurable'|'bundle'|'grouped'|'virtual'|'downloadable'} ProductType
- */
-
-/**
  * @typedef {'one_time'|'subscription'} PurchaseType
  */
 
@@ -58,30 +53,18 @@
  */
 
 /**
- * @typedef {Object} BundleSelection
- * @property {string} sku
- * @property {number} quantity
- */
-
-/**
  * @typedef {Object} SubscriptionEligibilityRequest
- * @property {string} [productId]
+ * @property {string|number} [productId]
  * @property {string} sku
- * @property {string} [parentSku]
- * @property {ProductType} [productType]
- * @property {number} [quantity]
- * @property {string[]} [optionsUIDs]
- * @property {Record<string, string>} [enteredOptions]
- * @property {BundleSelection[]} [bundleSelections]
- * @property {BundleSelection[]} [groupedSelections]
+ * @property {string} [subscriptionOptionId]
+ * @property {'edit_item'} [context]
+ * @property {{ externalId?: string }} [product]
  */
 
 /**
  * @typedef {Object} SubscriptionEligibility
  * @property {string} [productId]
  * @property {string} sku
- * @property {string} [parentSku]
- * @property {ProductType} productType
  * @property {boolean} eligible
  * @property {boolean} allowOneTime
  * @property {PurchaseType} defaultPurchaseType
@@ -98,29 +81,6 @@
  * @property {string} [subscriptionOptionId]
  * @property {SubscriptionPlan} [selectedPlan]
  * @property {Record<string, string>} [customOptionValues]
- */
-
-/**
- * Контекст товара/корзины для формирования пейлоада добавления в корзину/оформления заказа
- * @typedef {Object} SubscriptionCartContext
- * @property {string} [productId]
- * @property {string} [sku]
- * @property {string} [parentSku]
- * @property {number} [quantity]
- * @property {string[]} [optionsUIDs]
- * @property {SubscriptionPlan} [selectedPlan]
- */
-
-/**
- * Строго типизированный запрос на обогащение элемента корзины (для CartPayloadAdapter)
- * @typedef {Object} SubscriptionEnrichmentRequest
- * @property {string} [productId]
- * @property {string} sku
- * @property {number} quantity
- * @property {string[]} [optionsUIDs]
- * @property {SubscriptionSelection} selection
- * @property {SubscriptionCartContext} [context]
- * @property {string} [subscriptionOptionId]
  */
 
 /**
@@ -141,11 +101,6 @@
  */
 
 /**
- * @typedef {Object} SubscriptionCatalogResponse
- * @property {Record<string, SubscriptionEligibility>} catalog
- */
-
-/**
  * @typedef {Object} SubscriptionEligibilityResponse
  * @property {SubscriptionEligibility} [data]
  * @property {SubscriptionError} [error]
@@ -159,4 +114,5 @@ export const SUBSCRIPTION_ERROR_CODES = {
   SERVER: 'SUBSCRIPTION_SERVER_ERROR',
 };
 
-export const SUBSCRIPTION_CUSTOM_FIELD_KEY = 'subscription';
+/** Magento cart item attribute the price webhook reads. */
+export const RECURBUY_SUBSCRIPTION_OPTION_ID = 'recurbuy_subscription_option_id';

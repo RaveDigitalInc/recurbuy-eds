@@ -2,14 +2,11 @@ import { SUBSCRIPTION_ERROR_CODES } from '../contract.js';
 import { getValidSubscriptionConfig, getSubscriptionTimeoutMs } from '../config.js';
 import { mapStorefrontPayloadToEligibility } from './storefront-pdp-mapper.js';
 
-/*
- * Запрашивает доступность подписки для товара PDP
- * 
- * @param {import('../contract.js').SubscriptionEligibilityRequest & { product?: { externalId?: string }, initialSelection?: any, subscriptionOptionId?: string }} request
+/**
+ * @param {import('../contract.js').SubscriptionEligibilityRequest} request
  * @returns {Promise<import('../contract.js').SubscriptionEligibilityResponse>}
  */
 export async function fetchEligibility(request) {
-  // 1. Определение product_id через externalId (Adobe Magento ID)
   const productId = request?.product?.externalId || request?.productId;
   if (!productId) {
     return {
@@ -20,7 +17,6 @@ export async function fetchEligibility(request) {
     };
   }
 
-  // 2. Получение и проверка конфигурации
   let config;
   try {
     config = getValidSubscriptionConfig();
@@ -33,10 +29,9 @@ export async function fetchEligibility(request) {
     };
   }
 
-  // 3. Формирование URL и Query-параметров
   const url = new URL(
     `/api/recurbuy/storefront/products/${encodeURIComponent(productId)}/subscription-config`,
-    config.storefrontUrl
+    config.storefrontUrl,
   );
   url.searchParams.append('store_id', config.storeId);
   if (config.websiteId) {
@@ -47,11 +42,10 @@ export async function fetchEligibility(request) {
     url.searchParams.append('subscription_option_id', request.subscriptionOptionId);
   }
 
-  if (request.initialSelection?.subscriptionOptionId || request.context === 'edit_item') {
+  if (request.context === 'edit_item') {
     url.searchParams.append('context', 'edit_item');
   }
 
-  // 4. Отправка сетевого запроса с таймаутом
   const controller = new AbortController();
   const timeoutMs = getSubscriptionTimeoutMs();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -59,6 +53,7 @@ export async function fetchEligibility(request) {
   try {
     const response = await fetch(url.toString(), {
       method: 'GET',
+      credentials: 'omit',
       headers: {
         Accept: 'application/json',
         'X-RecurBuy-Connection-Token': config.connectionToken,
@@ -66,7 +61,6 @@ export async function fetchEligibility(request) {
       signal: controller.signal,
     });
 
-    // 5. Обработка ошибок ответов сервера
     if (response.status === 404) {
       return {
         error: {
@@ -95,9 +89,12 @@ export async function fetchEligibility(request) {
     }
 
     const payload = await response.json();
-    const eligibility = mapStorefrontPayloadToEligibility(payload, request.sku || String(productId), request.product);
+    const eligibility = mapStorefrontPayloadToEligibility(
+      payload,
+      request.sku || String(productId),
+      request.product,
+    );
 
-    // Если у товара нет подходящих опций подписки, считаем его SUBSCRIPTION_NOT_FOUND
     if (!eligibility.eligible) {
       return {
         error: {

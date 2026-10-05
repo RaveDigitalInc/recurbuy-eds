@@ -3,8 +3,6 @@
  * Used until Commerce cart GraphQL returns subscription fields.
  */
 
-import { SUBSCRIPTION_CUSTOM_FIELD_KEY } from './contract.js';
-
 const STORAGE_KEY = 'recurbuy.subscription.selections';
 
 /**
@@ -57,20 +55,7 @@ function writeStore(store) {
  * @param {SubscriptionSelection|null|undefined} selection
  */
 export function saveSelectionForSku(sku, selection) {
-  if (!sku) return;
-
-  const store = readStore();
-  if (!selection || selection.purchaseType !== 'subscription' || !selection.planId) {
-    delete store.bySku[sku];
-  } else {
-    store.bySku[sku] = {
-      purchaseType: 'subscription',
-      planId: selection.planId,
-      customOptionValues: { ...(selection.customOptionValues || {}) },
-      ...(selection.planSnapshot && { planSnapshot: { ...selection.planSnapshot } }),
-    };
-  }
-  writeStore(store);
+  persistSelection('bySku', sku, selection);
 }
 
 /**
@@ -78,13 +63,22 @@ export function saveSelectionForSku(sku, selection) {
  * @param {SubscriptionSelection|null|undefined} selection
  */
 export function saveSelectionForUid(uid, selection) {
-  if (!uid) return;
+  persistSelection('byUid', uid, selection);
+}
+
+/**
+ * @param {'bySku'|'byUid'} bucket
+ * @param {string|undefined|null} key
+ * @param {SubscriptionSelection|null|undefined} selection
+ */
+function persistSelection(bucket, key, selection) {
+  if (!key) return;
 
   const store = readStore();
   if (!selection || selection.purchaseType !== 'subscription' || !selection.planId) {
-    delete store.byUid[uid];
+    delete store[bucket][key];
   } else {
-    store.byUid[uid] = {
+    store[bucket][key] = {
       purchaseType: 'subscription',
       planId: selection.planId,
       customOptionValues: { ...(selection.customOptionValues || {}) },
@@ -112,15 +106,11 @@ export function linkSelectionUid(sku, uid) {
  *   uid?: string,
  *   sku?: string,
  *   topLevelSku?: string,
- *   customFields?: Record<string, unknown>,
  * }|null|undefined} item
  * @returns {SubscriptionSelection|null}
  */
 export function getSelectionForCartItem(item) {
   if (!item) return null;
-
-  const fromFields = parseSelectionFromCustomFields(item.customFields);
-  if (fromFields) return fromFields;
 
   const store = readStore();
   if (item.uid && store.byUid[item.uid]) {
@@ -155,25 +145,4 @@ export function pruneSelectionsToCartItems(items) {
   });
 
   if (changed) writeStore(store);
-}
-
-/**
- * @param {Record<string, unknown>|undefined|null} customFields
- * @returns {SubscriptionSelection|null}
- */
-function parseSelectionFromCustomFields(customFields) {
-  const subscription = customFields?.[SUBSCRIPTION_CUSTOM_FIELD_KEY];
-  if (!subscription || typeof subscription !== 'object') return null;
-
-  const payload = /** @type {Record<string, unknown>} */ (subscription);
-  if (payload.purchaseType !== 'subscription') return null;
-
-  return {
-    purchaseType: 'subscription',
-    planId: typeof payload.planId === 'string' ? payload.planId : undefined,
-    customOptionValues: /** @type {Record<string, string>|undefined} */ (
-      payload.customOptionValues
-    ),
-    planSnapshot: typeof payload.planSnapshot === 'object' ? payload.planSnapshot : undefined,
-  };
 }

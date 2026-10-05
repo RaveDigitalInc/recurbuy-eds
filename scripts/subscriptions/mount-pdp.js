@@ -1,6 +1,6 @@
 import { events } from '@dropins/tools/event-bus.js';
 import * as pdpApi from '@dropins/storefront-pdp/api.js';
-import { SubscriptionGateway } from './gateway.js';
+import { fetchEligibility } from './adapters/storefront-adapter.js';
 import { SUBSCRIPTION_ERROR_CODES } from './contract.js';
 import {
   clearSubscriptionPriceBox,
@@ -35,7 +35,7 @@ import {
  *   priceRoot: HTMLElement,
  *   productPriceRoot?: HTMLElement|null,
  *   scope?: string,
- *   initialSelection?: import('./contract.js').SubscriptionSelection & { subscriptionOptionId?: string, planId?: string },
+ *   initialSelection?: import('./contract.js').SubscriptionSelection,
  *   onChange?: (selection: SubscriptionSelection, meta: {
  *     active: boolean,
  *     selectionValid: boolean,
@@ -112,6 +112,7 @@ export function mountSubscriptionOnPdp({
     const selectedPlan = eligibility?.plans?.find((plan) => plan.id === selection.planId)
       || eligibility?.plans?.[0]
       || null;
+    const { standardPrice, standardRegularPrice } = getStandardPrices();
 
     renderSubscriptionSelector(selectorRoot, {
       viewState: viewState === 'ready' ? 'ready' : viewState,
@@ -119,6 +120,7 @@ export function mountSubscriptionOnPdp({
       selection,
       error,
       productValid,
+      standardPrice,
       onPurchaseTypeChange: (purchaseType) => {
         selection = {
           ...selection,
@@ -148,7 +150,6 @@ export function mountSubscriptionOnPdp({
     });
 
     if (viewState === 'ready') {
-      const { standardPrice, standardRegularPrice } = getStandardPrices();
       renderSubscriptionPriceBox(priceRoot, {
         purchaseType: selection.purchaseType,
         plan: selection.purchaseType === 'subscription' ? selectedPlan : null,
@@ -248,7 +249,7 @@ export function mountSubscriptionOnPdp({
     viewState = 'loading';
     render();
 
-    const response = await SubscriptionGateway.getEligibility(request);
+    const response = await fetchEligibility(request);
     if (destroyed || seq !== requestSeq) return;
     applyEligibilityResponse(response);
   };
@@ -267,8 +268,8 @@ export function mountSubscriptionOnPdp({
   };
 
   const eventOptions = scope
-  ? { eager: true, scope }
-  : { eager: true };
+    ? { eager: true, scope }
+    : { eager: true };
 
   const dataListener = events.on('pdp/data', () => {
     scheduleRefresh();
@@ -294,6 +295,7 @@ export function mountSubscriptionOnPdp({
     return {
       purchaseType: 'subscription',
       planId: selection.planId,
+      subscriptionOptionId: selection.planId,
       selectedPlan,
       planSnapshot: selectedPlan ? {
         planLabel: selectedPlan.label,
@@ -348,65 +350,19 @@ export function mountSubscriptionOnPdp({
  * @returns {import('./contract.js').SubscriptionEligibilityRequest & Record<string, any>}
  */
 function buildEligibilityRequest(product, values, initialSelection) {
-  const parentSku = product.sku;
   const sku = values?.sku || product.variantSku || product.sku;
-  const productType = resolveProductType(product);
-
-  // Извлекаем редактируемый план (для mini-PDP редактирования корзины)
   const planId = initialSelection?.planId || initialSelection?.subscriptionOptionId;
   const isEditing = initialSelection?.purchaseType === 'subscription' || Boolean(planId);
 
-  // Извлечение опций комплектов (Bundle v1)
-  const bundleOptions = productType === 'bundle'
-    ? (values?.bundleSelections || product.bundleOptions || null)
-    : undefined;
-
   return {
     sku,
-    parentSku: sku !== parentSku ? parentSku : undefined,
-    productType,
-    quantity: values?.quantity,
-    optionsUIDs: values?.optionsUIDs,
-    // Добавленные новые свойства по требованиям задачи
     productId: product.externalId ? Number(product.externalId) : undefined,
     product: {
       externalId: product.externalId ? String(product.externalId) : undefined,
     },
     ...(planId && { subscriptionOptionId: planId }),
     ...(isEditing && { context: 'edit_item' }),
-    ...(bundleOptions && { bundleOptions }),
   };
-}
-
-/**
- * @param {ProductModel} product
- * @returns {import('./contract.js').ProductType}
- */
-function resolveProductType(product) {
-  // 1. Bundle Product
-  if (product.isBundle || product.__typename === 'BundleProduct') {
-    return 'bundle';
-  }
-
-  // 2. Grouped Product
-  const hasGroupedItems = Array.isArray(product.options)
-    && product.options.some((option) => option.typename === 'ProductViewOptionValueProduct');
-
-  if (hasGroupedItems || product.__typename === 'GroupedProduct') {
-    return 'grouped';
-  }
-
-  // 3. Configurable Product
-  const isConfigurable = Boolean(product.variantSku)
-    || product.__typename === 'ConfigurableProduct'
-    || (Array.isArray(product.variants) && product.variants.length > 0);
-
-  if (isConfigurable) {
-    return 'configurable';
-  }
-
-  // 4. Fallback -> Simple
-  return 'simple';
 }
 
 /**
