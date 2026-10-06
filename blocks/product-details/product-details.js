@@ -156,7 +156,37 @@ export default async function decorate(block) {
 
   // Alert
   let inlineAlert = null;
+  let noticeTimer = null;
   const routeToWishlist = '/wishlist';
+
+  const showCartNotice = async ({ type, heading, description }) => {
+    inlineAlert?.remove();
+    if (noticeTimer) window.clearTimeout(noticeTimer);
+
+    inlineAlert = await UI.render(InLineAlert, {
+      heading,
+      description,
+      type,
+      variant: 'primary',
+      icon: h(Icon, { source: type === 'success' ? 'CheckWithCircle' : 'Warning' }),
+      'aria-live': 'assertive',
+      role: 'alert',
+      onDismiss: () => {
+        inlineAlert?.remove();
+      },
+    })($alert);
+
+    $alert.scrollIntoView({
+      behavior: 'smooth',
+      block: 'center',
+    });
+
+    if (type === 'success') {
+      noticeTimer = window.setTimeout(() => {
+        inlineAlert?.remove();
+      }, 5000);
+    }
+  };
 
   const [
     _galleryMobile,
@@ -250,67 +280,81 @@ export default async function decorate(block) {
         const values = pdpApi.getProductConfigurationValues();
         const valid = pdpApi.isProductConfigurationValid();
         const selectionValid = subscriptionController.isSelectionValid();
+        const productData = events.lastPayload('pdp/data') ?? product;
 
-        if (valid && selectionValid) {
-          const productData = events.lastPayload('pdp/data') ?? product;
-          const catalogProductId = productData?.externalId || product?.externalId;
+        if (!valid || !selectionValid) {
+          await showCartNotice({
+            type: 'error',
+            heading: labels.Global?.AddToCartError || 'Could not add to cart',
+            description: labels.Global?.SelectRequiredOptions
+              || 'Select the required options before adding this product to the cart.',
+          });
+          return;
+        }
 
-          const selection = subscriptionController.getSelection();
-          const cartItem = CartPayloadAdapter.enrich(
-            values || { sku: productData?.sku, quantity: 1 },
-            selection,
-            {
-              parentSku: productData?.sku,
-              selectedPlan: selection?.selectedPlan,
-            },
-          );
+        const catalogProductId = productData?.externalId || product?.externalId;
 
-          if (isUpdateMode) {
-            await updateCartItemWithSubscription({
-              cartItem,
-              itemUid: itemUidFromUrl,
-              selection,
-              catalogProductId,
-            });
+        const selection = subscriptionController.getSelection();
+        const cartItem = CartPayloadAdapter.enrich(
+          values || { sku: productData?.sku, quantity: 1 },
+          selection,
+          {
+            parentSku: productData?.sku,
+            selectedPlan: selection?.selectedPlan,
+          },
+        );
 
-            const updatedSku = cartItem?.sku;
-            if (updatedSku) {
-              const cartRedirectUrl = new URL(
-                rootLink('/cart'),
-                window.location.origin,
-              );
-              cartRedirectUrl.searchParams.set('itemUid', itemUidFromUrl);
-              window.location.href = cartRedirectUrl.toString();
-            } else {
-              window.location.href = rootLink('/cart');
-            }
-            return;
-          }
-
-          // --- Add new item ---
-          await addToCartWithSubscription({
+        if (isUpdateMode) {
+          await updateCartItemWithSubscription({
             cartItem,
+            itemUid: itemUidFromUrl,
             selection,
             catalogProductId,
           });
+
+          const updatedSku = cartItem?.sku;
+          const cartRedirectUrl = new URL(
+            rootLink('/cart'),
+            window.location.origin,
+          );
+          if (updatedSku) {
+            cartRedirectUrl.searchParams.set('itemUid', itemUidFromUrl);
+          }
+          window.location.href = cartRedirectUrl.toString();
+          return;
         }
 
-        inlineAlert?.remove();
-      } catch (error) {
-        inlineAlert = await UI.render(InLineAlert, {
-          heading: 'Error',
-          description: error.message,
-          icon: h(Icon, { source: 'Warning' }),
-          'aria-live': 'assertive',
-          role: 'alert',
-          onDismiss: () => {
-            inlineAlert.remove();
-          },
-        })($alert);
+        const added = await addToCartWithSubscription({
+          cartItem,
+          selection,
+          catalogProductId,
+        });
 
-        $alert.scrollIntoView({
-          behavior: 'smooth',
-          block: 'center',
+        if (!added) {
+          throw new Error(
+            labels.Global?.AddToCartErrorDescription
+              || 'The product could not be added to the cart.',
+          );
+        }
+
+        const productName = productData?.name || 'This product';
+        const addedMessage = (
+          labels.Global?.AddedToCartMessage || '{product} was added to your cart.'
+        ).replace('{product}', productName);
+
+        await showCartNotice({
+          type: 'success',
+          heading: labels.Global?.AddedToCart || 'Added to cart',
+          description: addedMessage,
+        });
+      } catch (error) {
+        const rawMessage = error instanceof Error ? error.message : String(error);
+        await showCartNotice({
+          type: 'error',
+          heading: labels.Global?.AddToCartError || 'Could not add to cart',
+          description: rawMessage.replace(/^\[RecurBuy\]\s*/, '')
+            || labels.Global?.AddToCartErrorDescription
+            || 'The product could not be added to the cart.',
         });
       } finally {
         updateAddToCartButtonText(addToCart, isUpdateMode, labels);

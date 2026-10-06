@@ -1,5 +1,7 @@
 import { fetchCheckoutCartItemFlags } from './adapters/storefront-cart-items-adapter.js';
+import { fetchSubscriptionOptionList } from './adapters/storefront-options-list.js';
 import {
+  isPlaceholderPlanLabel,
   matchStorefrontCartItemFlagsRow,
   mergeCartSubscriptionDetailsWithFlags,
 } from './adapters/storefront-cart-items-mapper.js';
@@ -33,7 +35,7 @@ export function renderCartSubscriptionDetails(root, details, options = {}) {
     return;
   }
 
-  const facts = renderSubscriptionFacts(details);
+  const facts = renderSubscriptionFacts(details, { includePlan: variant === 'mini' });
   root.hidden = false;
   root.innerHTML = variant === 'mini'
     ? `
@@ -47,7 +49,6 @@ export function renderCartSubscriptionDetails(root, details, options = {}) {
     `
     : `
       <div class="cart-subscription-details__content">
-        <span class="cart-subscription-details__badge">Subscription</span>
         ${facts}
       </div>
     `;
@@ -134,10 +135,13 @@ export async function syncCartSubscriptionDetails(items, detailsByUid = new Map(
     const snapshotDetails = fetchCartItemSubscriptionDetails(item);
     const flagsRow = matchStorefrontCartItemFlagsRow(item, flagsRows);
     const currencyFallback = item?.price?.currency || item?.regularPrice?.currency || 'USD';
-    const details = mergeCartSubscriptionDetailsWithFlags(
-      snapshotDetails,
+    const details = await withStorefrontPlanTitle(
+      mergeCartSubscriptionDetailsWithFlags(
+        snapshotDetails,
+        flagsRow,
+        currencyFallback,
+      ),
       flagsRow,
-      currencyFallback,
     );
 
     if (details) {
@@ -154,6 +158,27 @@ export async function syncCartSubscriptionDetails(items, detailsByUid = new Map(
   });
 
   return next;
+}
+
+/**
+ * Cart flags do not include the plan title. The options-list HTML does,
+ * keyed by the same subscription option id, when the quote line has product_id.
+ *
+ * @param {CartSubscriptionDetails|null} details
+ * @param {Record<string, unknown>|null|undefined} flagsRow
+ * @returns {Promise<CartSubscriptionDetails|null>}
+ */
+async function withStorefrontPlanTitle(details, flagsRow) {
+  if (!details || !isPlaceholderPlanLabel(details.planLabel)) return details;
+
+  const productId = flagsRow?.product_id;
+  if (productId === null || productId === undefined || productId === '') return details;
+
+  const optionList = await fetchSubscriptionOptionList(productId);
+  const title = optionList?.titles?.[String(details.planId)];
+  if (!title) return details;
+
+  return { ...details, planLabel: title };
 }
 
 /**
@@ -184,16 +209,27 @@ async function resolveCommerceCartId() {
 
 /**
  * @param {CartSubscriptionDetails} details
+ * @param {{ includePlan?: boolean }} [options]
  * @returns {string}
  */
-function renderSubscriptionFacts(details) {
+function renderSubscriptionFacts(details, options = {}) {
   const cycle = formatBillingCycle(details.period);
   const amount = details.price ? formatMoney(details.price) : '';
   const payment = amount && cycle ? `${amount} / ${cycle}` : amount;
   const startLabel = formatStartDate(details.startDate);
+  const planLabel = options.includePlan && !isPlaceholderPlanLabel(details.planLabel)
+    ? details.planLabel
+    : '';
+  const endsLabel = details.endsLabel || 'Cancel Anytime';
 
   return `
     <dl class="cart-subscription-details__list">
+      ${planLabel ? `
+        <div class="cart-subscription-details__row">
+          <dt class="cart-subscription-details__label">Subscription Plan</dt>
+          <dd class="cart-subscription-details__value">${escapeHtml(planLabel)}</dd>
+        </div>
+      ` : ''}
       ${payment ? `
         <div class="cart-subscription-details__row">
           <dt class="cart-subscription-details__label">Regular Payments</dt>
@@ -205,7 +241,7 @@ function renderSubscriptionFacts(details) {
       ` : ''}
       <div class="cart-subscription-details__row">
         <dt class="cart-subscription-details__label">Subscription End Date</dt>
-        <dd class="cart-subscription-details__value">Cancel Anytime</dd>
+        <dd class="cart-subscription-details__value">${escapeHtml(endsLabel)}</dd>
       </div>
     </dl>
   `;
@@ -217,6 +253,8 @@ function renderSubscriptionFacts(details) {
  */
 function formatStartDate(startDate) {
   if (!startDate) return '';
+  // Quote flags already localize dates ("9/15/26"). Reparsing those shifts the year.
+  if (!/^\d{4}-\d{2}-\d{2}/.test(startDate)) return startDate;
   const date = new Date(startDate);
   if (Number.isNaN(date.getTime())) return startDate;
 
@@ -253,7 +291,7 @@ export function applySubscriptionLinePrices(priceSlots, totalSlots, uid, details
 
   const priceSlot = priceSlots.get(uid);
   if (priceSlot) {
-    renderSubscriptionPrice(priceSlot.ctx, details, item || priceSlot.item);
+    renderSubscriptionPrice(priceSlot.ctx, details);
   }
 
   const totalSlot = totalSlots.get(uid);
@@ -264,30 +302,16 @@ export function applySubscriptionLinePrices(priceSlots, totalSlots, uid, details
 }
 
 /**
- * Renders subscription item price with regular price comparison if available.
+ * Replaces the catalog line price with the subscription amount.
  * @param {HTMLElement} ctx
  * @param {CartSubscriptionDetails|null|undefined} details
- * @param {any} item
  */
-export function renderSubscriptionPrice(ctx, details, item) {
+export function renderSubscriptionPrice(ctx, details) {
   if (!ctx || typeof ctx.replaceWith !== 'function') return;
   if (!details || details.purchaseType !== 'subscription' || !details.price) return;
 
   const row = document.createElement('span');
   row.className = 'subscription-item-price__row';
-
-  const regularPrice = item?.regularPrice;
-  const hasSavings = regularPrice
-    && typeof regularPrice.value === 'number'
-    && regularPrice.value > details.price.value;
-
-  if (hasSavings) {
-    const regularPriceElement = document.createElement('span');
-    regularPriceElement.className = 'subscription-item-price__regular';
-    regularPriceElement.setAttribute('aria-label', 'Regular price');
-    regularPriceElement.textContent = formatMoney(regularPrice);
-    row.appendChild(regularPriceElement);
-  }
 
   const priceElement = document.createElement('span');
   priceElement.className = 'subscription-item-price__final';
@@ -322,21 +346,20 @@ export function paintMiniCartSubscriptionPrices(items, detailsByUid) {
     const price = row.querySelector('.dropin-cart-item__price');
 
     if (!details || details.purchaseType !== 'subscription' || !details.price) {
-      if (total instanceof HTMLElement && total.dataset.subscriptionHidden === 'true') {
-        total.hidden = false;
-        delete total.dataset.subscriptionHidden;
-      }
+      restoreMiniCartPrice(row);
       return;
     }
 
     replaceDisplayedPrice(price, formatMoney(details.price));
+    hideOneTimePrices(row);
+
     if (!(total instanceof HTMLElement)) return;
 
     const quantity = Number(item?.quantity) || 1;
     if (quantity > 1) {
-      total.hidden = false;
-      delete total.dataset.subscriptionHidden;
-      replaceDisplayedPrice(total, formatMoney({
+      showMiniCartTotal(total);
+      const saleTotal = total.querySelector('[data-testid="discount-total"]') || total;
+      replaceDisplayedPrice(saleTotal, formatMoney({
         value: details.price.value * quantity,
         currency: details.price.currency,
       }));
@@ -344,7 +367,46 @@ export function paintMiniCartSubscriptionPrices(items, detailsByUid) {
     }
 
     total.hidden = true;
+    total.style.display = 'none';
     total.dataset.subscriptionHidden = 'true';
+  });
+}
+
+/**
+ * Drop-in shows the catalog price beside the charged price when they differ.
+ * Mini-cart keeps the subscription amount only.
+ * @param {Element} row
+ */
+function hideOneTimePrices(row) {
+  row.querySelectorAll('.dropin-price--strikethrough').forEach((node) => {
+    if (!(node instanceof HTMLElement)) return;
+    node.hidden = true;
+    node.dataset.subscriptionHidden = 'true';
+  });
+}
+
+/**
+ * @param {HTMLElement} total
+ */
+function showMiniCartTotal(total) {
+  total.hidden = false;
+  total.style.removeProperty('display');
+  delete total.dataset.subscriptionHidden;
+}
+
+/**
+ * @param {Element} row
+ */
+function restoreMiniCartPrice(row) {
+  const total = row.querySelector('.dropin-cart-item__total');
+  if (total instanceof HTMLElement && total.dataset.subscriptionHidden === 'true') {
+    showMiniCartTotal(total);
+  }
+
+  row.querySelectorAll('[data-subscription-hidden="true"]').forEach((node) => {
+    if (!(node instanceof HTMLElement) || node === total) return;
+    node.hidden = false;
+    delete node.dataset.subscriptionHidden;
   });
 }
 

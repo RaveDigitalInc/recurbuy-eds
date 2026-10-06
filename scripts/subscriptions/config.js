@@ -7,7 +7,7 @@ const DEFAULT_TIMEOUT_MS = 10000;
  */
 export function getSubscriptionStorefrontUrl() {
   const url = getConfigValue('subscriptions-storefront-url');
-  return url?.trim() ? url.trim() : undefined;
+  return url?.trim() ? url.trim().replace(/\/$/, '') : undefined;
 }
 
 /**
@@ -43,11 +43,15 @@ export function getSubscriptionTimeoutMs() {
 }
 
 /**
- * Проверяет обязательные параметры конфигурации.
- * Если URL, Token или Store ID отсутствуют или пусты, выбрасывает ошибку (не скрывает ошибку под фикстуры).
- * 
- * @returns {{ storefrontUrl: string, connectionToken: string, storeId: string, websiteId?: string }}
- * @throws {Error} Если хотя бы один обязательный параметр отсутствует
+ * Throws when URL, token, or store id is missing.
+ *
+ * @returns {{
+ *   storefrontUrl: string,
+ *   connectionToken: string,
+ *   storeId: string,
+ *   websiteId?: string,
+ * }}
+ * @throws {Error}
  */
 export function getValidSubscriptionConfig() {
   const storefrontUrl = getSubscriptionStorefrontUrl();

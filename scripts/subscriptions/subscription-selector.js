@@ -11,11 +11,12 @@ const ONE_TIME_VALUE = 'one_time';
  * @param {string} value
  * @returns {string}
  */
-function escapeAttr(value) {
+function escapeHtml(value) {
   return String(value)
     .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/</g, '&lt;');
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 /**
@@ -115,6 +116,11 @@ export function renderSubscriptionSelector(root, state) {
     : undefined;
   const selectedPlan = eligibility.plans.find((plan) => plan.id === selectedPlanId) || null;
   const allowOneTime = eligibility.allowOneTime !== false;
+  const saveCopy = eligibility.subscribeAndSave;
+  const subscribeTitle = saveCopy?.isVisible && saveCopy.text
+    ? saveCopy.text
+    : 'Subscribe and save';
+  const subscribeTooltip = saveCopy?.tooltip || '';
   const disabledAttr = productValid ? '' : 'disabled';
   const optionsKey = [
     allowOneTime ? ONE_TIME_VALUE : '',
@@ -147,7 +153,7 @@ export function renderSubscriptionSelector(root, state) {
       <div class="subscription-selector__options" role="radiogroup" aria-label="Purchase options">
         ${allowOneTime ? renderOneTimeOption(!isSubscribe, standardPrice, locale) : ''}
         <div class="subscription-selector__subscribe">
-          <p class="subscription-selector__subscribe-title">Subscribe and save</p>
+          <p class="subscription-selector__subscribe-title"${subscribeTooltip ? ` title="${escapeHtml(subscribeTooltip)}"` : ''}>${escapeHtml(subscribeTitle)}</p>
           ${eligibility.plans.map((plan) => renderPlanOption(
     plan,
     isSubscribe && plan.id === selectedPlan?.id,
@@ -273,7 +279,7 @@ function renderOneTimeOption(checked, standardPrice, locale) {
 function renderPlanOption(plan, checked, locale) {
   const price = getPlanDisplayPrice(plan);
   const saving = formatDiscount(plan.discount);
-  const priceSlot = escapeAttr(plan.id);
+  const priceSlot = escapeHtml(plan.id);
 
   return `
     <label class="subscription-selector__option ${checked ? 'is-selected' : ''}">
@@ -281,11 +287,11 @@ function renderPlanOption(plan, checked, locale) {
         class="subscription-selector__radio"
         type="radio"
         name="subscription-choice"
-        value="${escapeAttr(plan.id)}"
+        value="${escapeHtml(plan.id)}"
         ${checked ? 'checked' : ''}
       />
       <span class="subscription-selector__option-body">
-        <span class="subscription-selector__option-title">${plan.label}</span>
+        <span class="subscription-selector__option-title">${escapeHtml(plan.label)}</span>
         <span class="subscription-selector__option-caption">${formatPeriod(plan.period)}</span>
       </span>
       <span class="subscription-selector__option-meta">
@@ -302,6 +308,19 @@ function renderPlanOption(plan, checked, locale) {
  * @returns {string}
  */
 function renderPlanDetails(plan, locale) {
+  if (plan.facts?.length) {
+    return `
+      <div class="subscription-selector__details">
+        <p class="subscription-selector__details-title">Subscription details</p>
+        <ul class="subscription-selector__details-list">
+          ${plan.facts.map((fact) => `
+            <li><span>${escapeHtml(fact.label)}</span> ${escapeHtml(fact.value)}</li>
+          `).join('')}
+        </ul>
+      </div>
+    `;
+  }
+
   const details = [];
   const periodLabel = formatPeriod(plan.period);
   const regular = plan.prices?.regular;

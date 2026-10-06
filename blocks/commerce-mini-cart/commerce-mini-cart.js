@@ -50,6 +50,7 @@ export default async function decorate(block) {
   let currentCartNotification = null;
 
   const subscriptionDetailsByUid = new Map();
+  const subscriptionRootsByUid = new Map();
 
   // Create a container for the update message
   const updateMessage = document.createElement('div');
@@ -165,6 +166,11 @@ export default async function decorate(block) {
       subscriptionDetailsByUid.clear();
       next.forEach((details, uid) => {
         subscriptionDetailsByUid.set(uid, details);
+        const root = subscriptionRootsByUid.get(uid);
+        if (root) renderCartSubscriptionDetails(root, details, { variant: 'mini' });
+      });
+      subscriptionRootsByUid.forEach((root, uid) => {
+        if (!next.has(uid)) clearCartSubscriptionDetails(root);
       });
       paintSubscriptionPrices();
     } catch (error) {
@@ -275,6 +281,7 @@ export default async function decorate(block) {
         const subscriptionRoot = document.createElement('div');
         subscriptionRoot.className = 'cart-subscription-details cart-subscription-details--compact';
         ctx.appendChild(subscriptionRoot);
+        if (uid) subscriptionRootsByUid.set(uid, subscriptionRoot);
 
         // Render synchronously from cache if available
         const cachedDetails = uid ? subscriptionDetailsByUid.get(uid) : null;

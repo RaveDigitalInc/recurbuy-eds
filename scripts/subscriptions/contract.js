@@ -37,6 +37,7 @@
  * @property {SubscriptionPlanPrices} prices
  * @property {SubscriptionPeriod} [trial]
  * @property {string} [description]
+ * @property {Array<{ label: string, value: string }>} [facts]
  */
 
 /**
@@ -72,6 +73,7 @@
  * @property {SubscriptionPlan[]} plans
  * @property {SubscriptionCustomOption[]} [customOptions]
  * @property {string} [ineligibilityReason]
+ * @property {{ text?: string, tooltip?: string, isVisible?: boolean }} [subscribeAndSave]
  */
 
 /**
@@ -91,6 +93,7 @@
  * @property {SubscriptionPeriod} period
  * @property {MoneyAmount} price
  * @property {string} [startDate]
+ * @property {string} [endsLabel]
  * @property {PurchaseType} purchaseType
  */
 

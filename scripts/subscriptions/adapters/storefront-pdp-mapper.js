@@ -71,7 +71,13 @@ function resolvePlanTitle(planOptions, optionKey) {
   return undefined;
 }
 
-export function mapStorefrontPayloadToEligibility(payload, sku, pdpProduct) {
+/**
+ * @param {Record<string, unknown>|null|undefined} payload
+ * @param {string} sku
+ * @param {Record<string, any>|undefined} pdpProduct
+ * @param {import('./storefront-options-list.js').SubscriptionOptionList|null} [optionList]
+ */
+export function mapStorefrontPayloadToEligibility(payload, sku, pdpProduct, optionList = null) {
   const planOptions = payload?.planOptions;
   const options = payload?.options || payload?.regularPrices?.options || {};
   const optionKeys = Object.keys(options);
@@ -79,16 +85,20 @@ export function mapStorefrontPayloadToEligibility(payload, sku, pdpProduct) {
   const subscriptionOptionKeys = optionKeys.filter((key) => key !== '0');
   const eligible = subscriptionOptionKeys.length > 0;
 
-  const allowOneTime = '0' in options || '0' in (payload?.regularPrices?.options || {});
+  const pricesIncludeOneTime = '0' in options || '0' in (payload?.regularPrices?.options || {});
+  const allowOneTime = typeof optionList?.allowOneTime === 'boolean'
+    ? optionList.allowOneTime
+    : pricesIncludeOneTime;
 
   const rawDefaultType = payload?.preselectDefault?.subscriptionOptionId
     ? 'subscription'
     : (payload?.defaultPurchaseType || 'one_time');
-
-  const defaultPurchaseType = rawDefaultType === 'one-time' ? 'one_time' : rawDefaultType;
-  const selectedPlanId = payload?.selectedSubscriptionOptionId
-    || payload?.preselectDefault?.subscriptionOptionId
-    || null;
+  const normalizedDefaultType = rawDefaultType === 'one-time' ? 'one_time' : rawDefaultType;
+  const defaultPurchaseType = allowOneTime ? normalizedDefaultType : 'subscription';
+  const selectedPlanId = asPlanId(
+    payload?.selectedSubscriptionOptionId
+    || payload?.preselectDefault?.subscriptionOptionId,
+  );
 
   const pdpCurrency = pdpProduct?.prices?.final?.currency
     || pdpProduct?.price?.final?.amount?.currency;
@@ -114,9 +124,10 @@ export function mapStorefrontPayloadToEligibility(payload, sku, pdpProduct) {
     const rawPeriod = opt?.finalPrice?.aw_period || details?.period || opt?.aw_period;
     const period = parseSubscriptionPeriod(rawPeriod);
 
-    const planTitle = resolvePlanTitle(planOptions, key);
+    const planTitle = optionList?.titles?.[String(key)] || resolvePlanTitle(planOptions, key);
     const fallbackLabel = planTitle || details?.title || `Plan ${key}`;
     const label = opt?.label || opt?.name || fallbackLabel;
+    const facts = mapDetailFacts(details);
 
     return {
       id: String(key),
@@ -134,6 +145,7 @@ export function mapStorefrontPayloadToEligibility(payload, sku, pdpProduct) {
           },
         }),
       },
+      ...(facts.length && { facts }),
     };
   });
 
@@ -144,5 +156,33 @@ export function mapStorefrontPayloadToEligibility(payload, sku, pdpProduct) {
     defaultPurchaseType,
     selectedPlanId,
     plans,
+    ...(optionList?.subscribeAndSave && { subscribeAndSave: optionList.subscribeAndSave }),
   };
+}
+
+/**
+ * @param {unknown} value
+ * @returns {string|null}
+ */
+function asPlanId(value) {
+  if (value === null || value === undefined || value === '') return null;
+  return String(value);
+}
+
+/**
+ * Visible Magento detail blocks: first / trial / regular payment, start and end.
+ * @param {Record<string, unknown>|undefined} details
+ * @returns {Array<{ label: string, value: string }>}
+ */
+function mapDetailFacts(details) {
+  if (!details || typeof details !== 'object') return [];
+
+  return Object.values(details).flatMap((block) => {
+    if (!block || typeof block !== 'object') return [];
+    if (block.isShow === false) return [];
+    const label = typeof block.label === 'string' ? block.label.trim() : '';
+    const value = typeof block.value === 'string' ? block.value.trim() : '';
+    if (!label || !value) return [];
+    return [{ label, value }];
+  });
 }

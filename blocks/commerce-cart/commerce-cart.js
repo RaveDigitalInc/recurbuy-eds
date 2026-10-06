@@ -68,6 +68,7 @@ export default async function decorate(block) {
   const subscriptionDetailsByUid = new Map();
   const subscriptionPriceSlotsByUid = new Map();
   const subscriptionTotalSlotsByUid = new Map();
+  const subscriptionRootsByUid = new Map();
 
   // Layout
   const fragment = document.createRange().createContextualFragment(`
@@ -247,6 +248,7 @@ export default async function decorate(block) {
           const subscriptionRoot = document.createElement('div');
           subscriptionRoot.className = 'cart-subscription-details';
           ctx.appendChild(subscriptionRoot);
+          if (uid) subscriptionRootsByUid.set(uid, subscriptionRoot);
 
           const cachedDetails = uid ? subscriptionDetailsByUid.get(uid) : null;
           if (cachedDetails) {
@@ -355,6 +357,11 @@ export default async function decorate(block) {
       next.forEach((details, uid) => {
         subscriptionDetailsByUid.set(uid, details);
         applySubscriptionPrices(uid, details);
+        const root = subscriptionRootsByUid.get(uid);
+        if (root) renderCartSubscriptionDetails(root, details);
+      });
+      subscriptionRootsByUid.forEach((root, uid) => {
+        if (!next.has(uid)) clearCartSubscriptionDetails(root);
       });
     } catch (error) {
       console.error('Error syncing cart subscription details:', error);

@@ -13,9 +13,10 @@
           "Magento-Website-Code": "base"
         }
       },
-      "subscriptions-data-source": "local",
-      "subscriptions-endpoint": "",
-      "subscriptions-fetch-method": "GET",
+      "subscriptions-storefront-url": "https://saas-panel.staging-box.net",
+      "subscriptions-connection-token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOjQyLCJzdWIiOjEwNSwiaWF0IjoxNzg5OTgyMTM5fQ.SD9t17KnOg-S-azEvQj97j4aw9Dh1iAGY0Vp9xZ2F1s",
+      "subscriptions-store-id": "140",
+      "subscriptions-website-id": "",
       "subscriptions-timeout-ms": 10000,
       "plugins": {
         "picker": {

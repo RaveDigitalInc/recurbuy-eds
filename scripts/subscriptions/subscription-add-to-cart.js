@@ -127,19 +127,40 @@ export async function addToCartWithSubscription({
     throw new Error(`[RecurBuy] Added item UID not found in cart for SKU: ${cartItem.sku}`);
   }
 
+  // Commerce merges a repeated SKU into the existing line. The PDP quantity is
+  // only this add, so writing it back would reset a line of 2 to 1.
   await persistSubscriptionLine(
     cartId,
     itemUid,
     subscriptionOptionId,
     selection,
-    cartItem.quantity || 1,
+    quantityOnLine(currentCart, itemUid, cartItem.quantity),
   );
 
   if (typeof refreshCart === 'function') {
-    await refreshCart();
+    const refreshed = await refreshCart();
+    return refreshed || currentCart;
   }
 
   return currentCart;
+}
+
+/**
+ * @param {Object|null|undefined} cart
+ * @param {string} itemUid
+ * @param {number|string|undefined} fallback
+ * @returns {number}
+ */
+function quantityOnLine(cart, itemUid, fallback) {
+  const items = cart?.items || cart?.itemsV2?.items || [];
+  const line = Array.isArray(items)
+    ? items.find((item) => item?.uid === itemUid)
+    : null;
+  const current = Number(line?.quantity);
+  if (Number.isFinite(current) && current > 0) return current;
+
+  const requested = Number(fallback);
+  return Number.isFinite(requested) && requested > 0 ? requested : 1;
 }
 
 /**

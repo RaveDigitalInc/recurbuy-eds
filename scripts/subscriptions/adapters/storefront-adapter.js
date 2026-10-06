@@ -1,6 +1,7 @@
 import { SUBSCRIPTION_ERROR_CODES } from '../contract.js';
 import { getValidSubscriptionConfig, getSubscriptionTimeoutMs } from '../config.js';
 import { mapStorefrontPayloadToEligibility } from './storefront-pdp-mapper.js';
+import { fetchSubscriptionOptionList } from './storefront-options-list.js';
 
 /**
  * @param {import('../contract.js').SubscriptionEligibilityRequest} request
@@ -89,10 +90,12 @@ export async function fetchEligibility(request) {
     }
 
     const payload = await response.json();
+    const optionList = await fetchSubscriptionOptionList(productId);
     const eligibility = mapStorefrontPayloadToEligibility(
       payload,
       request.sku || String(productId),
       request.product,
+      optionList,
     );
 
     if (!eligibility.eligible) {
