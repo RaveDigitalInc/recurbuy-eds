@@ -27,8 +27,31 @@
   margin-bottom: var(--spacing-medium);
 }
 
+.product-details .pdp-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--spacing-small);
+}
+
+.product-details .pdp-header__title {
+  min-width: 0;
+}
+
+.product-details .pdp-header__sku {
+  margin: 0;
+  color: var(--color-neutral-700);
+  font: var(--type-body-2-default-font);
+  letter-spacing: var(--type-body-2-default-letter-spacing);
+  white-space: nowrap;
+}
+
+.product-details .pdp-header__sku::before {
+  content: "SKU ";
+}
+
 .product-details__price {
-  margin-top: var(--spacing-medium);
+  margin-top: var(--spacing-small);
 }
 
 .product-details__gallery .pdp-carousel {
@@ -133,7 +156,7 @@
 }
 
 .product-details__subscription {
-  margin-top: var(--spacing-medium);
+  margin-top: var(--spacing-big);
 }
 
 .product-details__subscription:empty,
@@ -143,7 +166,7 @@
 
 /* Subscription price box */
 .subscription-price-box {
-  margin-top: var(--spacing-medium);
+  margin-bottom: var(--spacing-small);
   color: var(--color-neutral-800);
 }
 
@@ -174,17 +197,9 @@
 }
 
 .subscription-price-box__saving {
-  margin-top: var(--spacing-xxsmall);
   font: var(--type-body-2-emphasized-font);
   letter-spacing: var(--type-body-2-emphasized-letter-spacing);
   color: var(--color-positive-800);
-}
-
-.subscription-price-box__caption {
-  margin-top: var(--spacing-xxsmall);
-  font: var(--type-details-caption-1-font);
-  letter-spacing: var(--type-details-caption-1-letter-spacing);
-  color: var(--color-neutral-700);
 }
 
 /* Subscription selector */
@@ -204,6 +219,7 @@
 }
 
 .subscription-selector__legend,
+.subscription-selector__subscribe-title,
 .subscription-selector__details-title,
 .subscription-selector__custom-options-title,
 .subscription-selector__unavailable-title,
@@ -220,20 +236,31 @@
   gap: var(--spacing-xsmall);
 }
 
+.subscription-selector__subscribe {
+  display: grid;
+  gap: var(--spacing-xsmall);
+}
+
+.subscription-selector__subscribe-title {
+  margin-top: var(--spacing-xsmall);
+}
+
 .subscription-selector__option {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: auto 1fr auto;
   gap: var(--spacing-xsmall);
-  align-items: flex-start;
-  padding: var(--spacing-xsmall) 0;
-  border: 0;
+  align-items: center;
+  padding: var(--spacing-xsmall);
+  border: var(--shape-border-width-1) solid var(--color-neutral-300);
+  border-radius: var(--shape-border-radius-1);
   background: transparent;
   cursor: pointer;
+  transition: border-color 180ms ease, background-color 180ms ease;
 }
 
 .subscription-selector__option.is-selected {
-  border: 0;
-  background: transparent;
+  border-color: var(--color-neutral-800);
+  background: var(--color-neutral-100);
 }
 
 .subscription-selector__radio {
@@ -251,6 +278,27 @@
   color: var(--color-neutral-800);
 }
 
+.subscription-selector__option-meta {
+  display: grid;
+  justify-items: end;
+  gap: var(--spacing-xxsmall);
+  text-align: end;
+}
+
+.subscription-selector__option-price {
+  font: var(--type-body-2-emphasized-font);
+  letter-spacing: var(--type-body-2-emphasized-letter-spacing);
+  color: var(--color-neutral-800);
+  white-space: nowrap;
+}
+
+.subscription-selector__option-saving {
+  font: var(--type-details-caption-1-font);
+  letter-spacing: var(--type-details-caption-1-letter-spacing);
+  color: var(--color-positive-800);
+  white-space: nowrap;
+}
+
 .subscription-selector__option-caption,
 .subscription-selector__unavailable-message,
 .subscription-selector__error-message,
@@ -261,10 +309,42 @@
 }
 
 .subscription-selector__details {
-  margin-top: var(--spacing-medium);
+  margin-top: var(--spacing-big);
+}
+
+.subscription-selector__details,
+.subscription-selector__custom-options,
+.subscription-price-box.is-updating {
+  animation: subscription-panel-in 220ms ease-out;
+}
+
+@keyframes subscription-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .subscription-selector__option {
+    transition: none;
+  }
+
+  .subscription-selector__details,
+  .subscription-selector__custom-options,
+  .subscription-price-box.is-updating {
+    animation: none;
+  }
 }
 
 .subscription-selector__details-list {
+  display: grid;
+  gap: var(--spacing-xxsmall);
   margin: 0;
   padding-left: 0;
   list-style: none;

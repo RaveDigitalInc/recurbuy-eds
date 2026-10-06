@@ -33,6 +33,7 @@ import '../../scripts/initializers/cart.js';
 import '../../scripts/initializers/wishlist.js';
 import { renderCustomAttributes } from '../../scripts/helpers/custom-attributes.js';
 import {
+  applySubscriptionLinePrices,
   clearCartSubscriptionDetails,
   fetchCartItemSubscriptionDetails,
   renderCartSubscriptionDetails,
@@ -63,8 +64,11 @@ export default async function decorate(block) {
   let currentModal = null;
   let currentNotification = null;
 
-  /** Cart item uid -> subscription details from gateway */
+  /** Cart item uid -> subscription details from the session snapshot */
   const subscriptionDetailsByUid = new Map();
+  const subscriptionPriceSlotsByUid = new Map();
+  const subscriptionTotalSlotsByUid = new Map();
+  const subscriptionRootsByUid = new Map();
 
   // Layout
   const fragment = document.createRange().createContextualFragment(`
@@ -105,11 +109,9 @@ export default async function decorate(block) {
   // Handle Edit Button Click
   async function handleEditButtonClick(cartItem) {
     try {
-      // Create mini PDP content
       const miniPDPContent = await createMiniPDP(
         cartItem,
         async (_updateData) => {
-          // Show success message when mini-PDP updates item
           const productName = cartItem.name
             || cartItem.product?.name
             || placeholders?.Global?.CartUpdatedProductName;
@@ -118,7 +120,6 @@ export default async function decorate(block) {
             productName,
           );
 
-          // Clear any existing notifications
           currentNotification?.remove();
 
           currentNotification = await UI.render(InLineAlert, {
@@ -133,7 +134,6 @@ export default async function decorate(block) {
             },
           })($notification);
 
-          // Auto-dismiss after 5 seconds
           setTimeout(() => {
             currentNotification?.remove();
           }, 5000);
@@ -146,7 +146,6 @@ export default async function decorate(block) {
         },
       );
 
-      // Create and show modal
       currentModal = await createModal([miniPDPContent]);
 
       if (currentModal.block) {
@@ -156,11 +155,8 @@ export default async function decorate(block) {
       currentModal.showModal();
     } catch (error) {
       console.error('Error opening mini PDP modal:', error);
-
-      // Clear any existing notifications
       currentNotification?.remove();
 
-      // Show error notification
       currentNotification = await UI.render(InLineAlert, {
         heading: placeholders?.Global?.ProductLoadError,
         type: 'error',
@@ -174,6 +170,16 @@ export default async function decorate(block) {
       })($notification);
     }
   }
+
+  const applySubscriptionPrices = (uid, details, item) => {
+    applySubscriptionLinePrices(
+      subscriptionPriceSlotsByUid,
+      subscriptionTotalSlotsByUid,
+      uid,
+      details,
+      item,
+    );
+  };
 
   // Render Containers
   const getProductLink = (product) => rootLink(`/products/${product.url.urlKey}/${product.topLevelSku}`);
@@ -208,6 +214,24 @@ export default async function decorate(block) {
           });
         },
 
+        ItemPrice: (ctx) => {
+          const { item } = ctx;
+          const uid = item?.uid;
+          if (!uid) return;
+
+          subscriptionPriceSlotsByUid.set(uid, { ctx, item });
+          applySubscriptionPrices(uid, subscriptionDetailsByUid.get(uid), item);
+        },
+
+        ItemTotal: (ctx) => {
+          const { item } = ctx;
+          const uid = item?.uid;
+          if (!uid) return;
+
+          subscriptionTotalSlotsByUid.set(uid, { ctx, item });
+          applySubscriptionPrices(uid, subscriptionDetailsByUid.get(uid), item);
+        },
+
         ProductAttributes: (ctx) => {
           const { item } = ctx;
           const uid = item?.uid;
@@ -221,41 +245,28 @@ export default async function decorate(block) {
           );
           ctx.appendChild(attributesWrapper);
 
-          // Dedicated container for subscription metadata to avoid layout collisions
-          let subscriptionRoot = ctx.querySelector('.cart-subscription-details');
-          if (!subscriptionRoot) {
-            subscriptionRoot = document.createElement('div');
-            subscriptionRoot.className = 'cart-subscription-details';
-            ctx.appendChild(subscriptionRoot);
-          }
+          const subscriptionRoot = document.createElement('div');
+          subscriptionRoot.className = 'cart-subscription-details';
+          ctx.appendChild(subscriptionRoot);
+          if (uid) subscriptionRootsByUid.set(uid, subscriptionRoot);
 
-          // Render synchronously from cache if available
           const cachedDetails = uid ? subscriptionDetailsByUid.get(uid) : null;
           if (cachedDetails) {
             renderCartSubscriptionDetails(subscriptionRoot, cachedDetails);
             return;
           }
 
-          // Fallback async fetch with node connectivity check
-          fetchCartItemSubscriptionDetails(item)
-            .then((details) => {
-              if (!subscriptionRoot.isConnected) return;
-              if (details && uid) {
-                subscriptionDetailsByUid.set(uid, details);
-                renderCartSubscriptionDetails(subscriptionRoot, details);
-              } else {
-                clearCartSubscriptionDetails(subscriptionRoot);
-              }
-            })
-            .catch(() => {
-              if (subscriptionRoot.isConnected) {
-                clearCartSubscriptionDetails(subscriptionRoot);
-              }
-            });
+          const details = fetchCartItemSubscriptionDetails(item);
+          if (details && uid) {
+            subscriptionDetailsByUid.set(uid, details);
+            renderCartSubscriptionDetails(subscriptionRoot, details);
+            applySubscriptionPrices(uid, details, item);
+          } else {
+            clearCartSubscriptionDetails(subscriptionRoot);
+          }
         },
 
         Footer: (ctx) => {
-          // Edit Link
           if (ctx.item?.itemType === 'ConfigurableCartItem' && enableUpdatingProduct === 'true') {
             const editLink = document.createElement('div');
             editLink.className = 'cart-item-edit-link';
@@ -271,7 +282,6 @@ export default async function decorate(block) {
             ctx.appendChild(editLink);
           }
 
-          // Wishlist Button
           const $wishlistToggle = document.createElement('div');
           $wishlistToggle.classList.add('cart__action--wishlist-toggle');
 
@@ -285,7 +295,6 @@ export default async function decorate(block) {
 
           ctx.appendChild($wishlistToggle);
 
-          // Gift Options
           const giftOptions = document.createElement('div');
 
           provider.render(GiftOptions, {
@@ -347,6 +356,12 @@ export default async function decorate(block) {
       subscriptionDetailsByUid.clear();
       next.forEach((details, uid) => {
         subscriptionDetailsByUid.set(uid, details);
+        applySubscriptionPrices(uid, details);
+        const root = subscriptionRootsByUid.get(uid);
+        if (root) renderCartSubscriptionDetails(root, details);
+      });
+      subscriptionRootsByUid.forEach((root, uid) => {
+        if (!next.has(uid)) clearCartSubscriptionDetails(root);
       });
     } catch (error) {
       console.error('Error syncing cart subscription details:', error);

@@ -19,6 +19,15 @@ import '../../scripts/initializers/cart.js';
 import { readBlockConfig } from '../../scripts/aem.js';
 import { fetchPlaceholders, rootLink } from '../../scripts/commerce.js';
 
+import { renderCustomAttributes } from '../../scripts/helpers/custom-attributes.js';
+import {
+  paintMiniCartSubscriptionPrices,
+  syncCartSubscriptionDetails,
+  fetchCartItemSubscriptionDetails,
+  renderCartSubscriptionDetails,
+  clearCartSubscriptionDetails,
+} from '../../scripts/subscriptions/index.js';
+
 export default async function decorate(block) {
   const {
     'start-shopping-url': startShoppingURL = '',
@@ -39,6 +48,9 @@ export default async function decorate(block) {
   // Modal state
   let currentModal = null;
   let currentCartNotification = null;
+
+  const subscriptionDetailsByUid = new Map();
+  const subscriptionRootsByUid = new Map();
 
   // Create a container for the update message
   const updateMessage = document.createElement('div');
@@ -132,7 +144,48 @@ export default async function decorate(block) {
     }
   }
 
+  let latestCartItems = [];
+
+  const paintSubscriptionPrices = () => {
+    const paint = () => paintMiniCartSubscriptionPrices(latestCartItems, subscriptionDetailsByUid);
+    paint();
+    requestAnimationFrame(() => {
+      paint();
+      requestAnimationFrame(paint);
+    });
+  };
+
+  const applySubscriptionPrices = () => {
+    paintSubscriptionPrices();
+  };
+
+  const refreshSubscriptionDetails = async (items) => {
+    latestCartItems = items || [];
+    try {
+      const next = await syncCartSubscriptionDetails(items, subscriptionDetailsByUid);
+      subscriptionDetailsByUid.clear();
+      next.forEach((details, uid) => {
+        subscriptionDetailsByUid.set(uid, details);
+        const root = subscriptionRootsByUid.get(uid);
+        if (root) renderCartSubscriptionDetails(root, details, { variant: 'mini' });
+      });
+      subscriptionRootsByUid.forEach((root, uid) => {
+        if (!next.has(uid)) clearCartSubscriptionDetails(root);
+      });
+      paintSubscriptionPrices();
+    } catch (error) {
+      console.error('Error syncing cart subscription details:', error);
+    }
+  };
+
   // Add event listeners for cart updates
+  events.on(
+    'cart/data',
+    (cartData) => {
+      refreshSubscriptionDetails(cartData?.items);
+    },
+    { eager: true },
+  );
   events.on('cart/product/added', () => showMessage(MESSAGES.ADDED), {
     eager: true,
   });
@@ -204,7 +257,51 @@ export default async function decorate(block) {
           ctx.appendChild(editLinkContainer);
         }
       },
+      ItemPrice: () => {
+        applySubscriptionPrices();
+      },
+
+      ItemTotal: () => {
+        applySubscriptionPrices();
+      },
+
+      ProductAttributes: (ctx) => {
+        const { item } = ctx;
+        const uid = item?.uid;
+
+        const attributesWrapper = document.createElement('div');
+        renderCustomAttributes(
+          attributesWrapper,
+          item?.productAttributes ?? [],
+          'cart',
+        );
+        ctx.appendChild(attributesWrapper);
+
+        // Dedicated container for subscription metadata to avoid layout collisions
+        const subscriptionRoot = document.createElement('div');
+        subscriptionRoot.className = 'cart-subscription-details cart-subscription-details--compact';
+        ctx.appendChild(subscriptionRoot);
+        if (uid) subscriptionRootsByUid.set(uid, subscriptionRoot);
+
+        // Render synchronously from cache if available
+        const cachedDetails = uid ? subscriptionDetailsByUid.get(uid) : null;
+        if (cachedDetails) {
+          renderCartSubscriptionDetails(subscriptionRoot, cachedDetails, { variant: 'mini' });
+          return;
+        }
+
+        // Fallback async fetch with node connectivity check
+        const details = fetchCartItemSubscriptionDetails(item);
+        if (details && uid) {
+          subscriptionDetailsByUid.set(uid, details);
+          renderCartSubscriptionDetails(subscriptionRoot, details, { variant: 'mini' });
+          applySubscriptionPrices(uid, details);
+        } else {
+          clearCartSubscriptionDetails(subscriptionRoot);
+        }
+      },
     },
+
   })(block);
 
   // Find the products container and add the message div at the top

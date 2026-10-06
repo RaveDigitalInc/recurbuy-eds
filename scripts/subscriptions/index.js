@@ -1,15 +1,15 @@
 export {
-  SUBSCRIPTION_CUSTOM_FIELD_KEY,
+  RECURBUY_SUBSCRIPTION_OPTION_ID,
   SUBSCRIPTION_ERROR_CODES,
 } from './contract.js';
-export { SubscriptionGateway } from './gateway.js';
 export { CartPayloadAdapter } from './cart-payload-adapter.js';
 export {
-  getSubscriptionDataSource,
-  getSubscriptionEndpoint,
-  getSubscriptionFetchMethod,
+  getSubscriptionStorefrontUrl,
+  getSubscriptionConnectionToken,
+  getSubscriptionStoreId,
+  getSubscriptionWebsiteId,
   getSubscriptionTimeoutMs,
-  shouldUseLocalFixtures,
+  getValidSubscriptionConfig,
 } from './config.js';
 export {
   formatDiscount,
@@ -31,5 +31,20 @@ export {
   clearCartSubscriptionDetails,
   fetchCartItemSubscriptionDetails,
   renderCartSubscriptionDetails,
+  renderSubscriptionPrice,
+  renderSubscriptionTotal,
+  applySubscriptionLinePrices,
+  paintMiniCartSubscriptionPrices,
   syncCartSubscriptionDetails,
 } from './cart-subscription-details.js';
+export { fetchCheckoutConfig } from './adapters/storefront-checkout-config-adapter.js';
+export {
+  createDefaultStorefrontCheckoutConfig,
+  isMixedQuoteSubscriptionPaymentMethod,
+  mapStorefrontCheckoutConfigPayload,
+} from './adapters/storefront-checkout-config-mapper.js';
+export { fetchCheckoutSuccessProfiles } from './adapters/storefront-checkout-success-adapter.js';
+export {
+  createEmptyStorefrontCheckoutSuccessProfiles,
+  mapStorefrontCheckoutSuccessPayload,
+} from './adapters/storefront-checkout-success-mapper.js';

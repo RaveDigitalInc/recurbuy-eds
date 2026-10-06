@@ -1,6 +1,5 @@
 /**
- * Mock subscription API contract shared by UI, gateway, and cart adapters.
- * Replace the DummyJSON adapter with a SaaS implementation without changing these shapes.
+ * Subscription shapes shared by the PDP selector, storefront adapters, and cart UI.
  */
 
 /** @typedef {'day'|'week'|'month'|'year'} PeriodUnit */
@@ -38,10 +37,7 @@
  * @property {SubscriptionPlanPrices} prices
  * @property {SubscriptionPeriod} [trial]
  * @property {string} [description]
- */
-
-/**
- * @typedef {'simple'|'configurable'|'bundle'|'grouped'|'virtual'|'downloadable'} ProductType
+ * @property {Array<{ label: string, value: string }>} [facts]
  */
 
 /**
@@ -58,28 +54,18 @@
  */
 
 /**
- * @typedef {Object} BundleSelection
- * @property {string} sku
- * @property {number} quantity
- */
-
-/**
  * @typedef {Object} SubscriptionEligibilityRequest
+ * @property {string|number} [productId]
  * @property {string} sku
- * @property {string} [parentSku]
- * @property {ProductType} productType
- * @property {number} [quantity]
- * @property {string[]} [optionsUIDs]
- * @property {Record<string, string>} [enteredOptions]
- * @property {BundleSelection[]} [bundleSelections]
- * @property {BundleSelection[]} [groupedSelections]
+ * @property {string} [subscriptionOptionId]
+ * @property {'edit_item'} [context]
+ * @property {{ externalId?: string }} [product]
  */
 
 /**
  * @typedef {Object} SubscriptionEligibility
+ * @property {string} [productId]
  * @property {string} sku
- * @property {string} [parentSku]
- * @property {ProductType} productType
  * @property {boolean} eligible
  * @property {boolean} allowOneTime
  * @property {PurchaseType} defaultPurchaseType
@@ -87,22 +73,27 @@
  * @property {SubscriptionPlan[]} plans
  * @property {SubscriptionCustomOption[]} [customOptions]
  * @property {string} [ineligibilityReason]
+ * @property {{ text?: string, tooltip?: string, isVisible?: boolean }} [subscribeAndSave]
  */
 
 /**
  * @typedef {Object} SubscriptionSelection
  * @property {PurchaseType} purchaseType
  * @property {string} [planId]
+ * @property {string} [subscriptionOptionId]
+ * @property {SubscriptionPlan} [selectedPlan]
  * @property {Record<string, string>} [customOptionValues]
  */
 
 /**
  * @typedef {Object} CartSubscriptionDetails
  * @property {string} planId
+ * @property {string} [subscriptionOptionId]
  * @property {string} planLabel
  * @property {SubscriptionPeriod} period
  * @property {MoneyAmount} price
  * @property {string} [startDate]
+ * @property {string} [endsLabel]
  * @property {PurchaseType} purchaseType
  */
 
@@ -113,27 +104,8 @@
  */
 
 /**
- * @typedef {Object} SubscriptionCatalogResponse
- * @property {Record<string, SubscriptionEligibility>} catalog
- */
-
-/**
  * @typedef {Object} SubscriptionEligibilityResponse
  * @property {SubscriptionEligibility} [data]
- * @property {SubscriptionError} [error]
- */
-
-/**
- * @typedef {Object} CartSubscriptionDetailsRequest
- * @property {string} sku
- * @property {string} [parentSku]
- * @property {string} [cartItemUid]
- * @property {string} [planId]
- */
-
-/**
- * @typedef {Object} CartSubscriptionDetailsResponse
- * @property {CartSubscriptionDetails} [data]
  * @property {SubscriptionError} [error]
  */
 
@@ -145,4 +117,5 @@ export const SUBSCRIPTION_ERROR_CODES = {
   SERVER: 'SUBSCRIPTION_SERVER_ERROR',
 };
 
-export const SUBSCRIPTION_CUSTOM_FIELD_KEY = 'subscription';
+/** Magento cart item attribute the price webhook reads. */
+export const RECURBUY_SUBSCRIPTION_OPTION_ID = 'recurbuy_subscription_option_id';

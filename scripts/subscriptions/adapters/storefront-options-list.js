@@ -1,0 +1,134 @@
+import { getValidSubscriptionConfig, getSubscriptionTimeoutMs } from '../config.js';
+
+/**
+ * Plan titles for a simple product live in subscription-options-list HTML.
+ * subscription-config prices the plans but does not include frontend titles.
+ *
+ * @typedef {Object} SubscriptionOptionList
+ * @property {Record<string, string>} titles Option id → plan title
+ * @property {boolean} [allowOneTime] True when the list starts with the one-off row
+ * @property {{ text?: string, tooltip?: string, isVisible?: boolean }} [subscribeAndSave]
+ */
+
+/** @type {Map<string, SubscriptionOptionList>} */
+const cache = new Map();
+/** @type {Map<string, Promise<SubscriptionOptionList|null>>} */
+const inflight = new Map();
+
+/**
+ * @param {string|undefined|null} html
+ * @returns {Record<string, string>}
+ */
+function parseSubscriptionOptionListHtml(html) {
+  if (typeof html !== 'string' || !html.trim() || typeof DOMParser === 'undefined') return {};
+  return parseWithDom(html);
+}
+
+/**
+ * @param {Record<string, unknown>|null|undefined} payload
+ * @returns {SubscriptionOptionList|null}
+ */
+function readSubscriptionOptionList(payload) {
+  if (!payload || typeof payload !== 'object') return null;
+
+  const { subscribeAndSave, html, isFirstOptionNoPlan } = payload;
+  return {
+    titles: parseSubscriptionOptionListHtml(typeof html === 'string' ? html : ''),
+    ...(typeof isFirstOptionNoPlan === 'boolean' && {
+      allowOneTime: isFirstOptionNoPlan,
+    }),
+    ...(subscribeAndSave && typeof subscribeAndSave === 'object' && { subscribeAndSave }),
+  };
+}
+
+/**
+ * @param {number|string|null|undefined} productId
+ * @returns {Promise<SubscriptionOptionList|null>}
+ */
+export async function fetchSubscriptionOptionList(productId) {
+  const id = String(productId ?? '').trim();
+  if (!id || id === '0' || !/^\d+$/.test(id)) return null;
+  if (cache.has(id)) return cache.get(id) || null;
+  if (inflight.has(id)) return inflight.get(id) || null;
+
+  const promise = loadSubscriptionOptionList(id)
+    .then((result) => {
+      if (result) cache.set(id, result);
+      return result;
+    })
+    .finally(() => {
+      inflight.delete(id);
+    });
+
+  inflight.set(id, promise);
+  return promise;
+}
+
+/**
+ * @param {string} productId
+ * @returns {Promise<SubscriptionOptionList|null>}
+ */
+async function loadSubscriptionOptionList(productId) {
+  let config;
+  try {
+    config = getValidSubscriptionConfig();
+  } catch {
+    return null;
+  }
+
+  const url = new URL(
+    `/api/recurbuy/storefront/products/${encodeURIComponent(productId)}/subscription-options-list`,
+    config.storefrontUrl,
+  );
+  url.searchParams.set('store_id', config.storeId);
+  if (config.websiteId) {
+    url.searchParams.set('website_id', config.websiteId);
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), getSubscriptionTimeoutMs());
+
+  try {
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      credentials: 'omit',
+      headers: {
+        Accept: 'application/json',
+        'X-RecurBuy-Connection-Token': config.connectionToken,
+      },
+      signal: controller.signal,
+    });
+
+    if (!response.ok) return null;
+    return readSubscriptionOptionList(await response.json());
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * @param {string} html
+ * @returns {Record<string, string>}
+ */
+function parseWithDom(html) {
+  const titles = {};
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+
+  doc.querySelectorAll('input[name="aw_sarp2_subscription_type"]').forEach((input) => {
+    const id = input.getAttribute('value');
+    if (!id || id === '0' || titles[id]) return;
+    const label = input.parentElement?.querySelector('label span')?.textContent?.trim();
+    if (label) titles[id] = label;
+  });
+
+  doc.querySelectorAll('select.aw-sarp2-subscription__options-list option').forEach((option) => {
+    const id = option.getAttribute('value');
+    if (!id || id === '0' || titles[id]) return;
+    const label = option.textContent?.trim();
+    if (label) titles[id] = label;
+  });
+
+  return titles;
+}

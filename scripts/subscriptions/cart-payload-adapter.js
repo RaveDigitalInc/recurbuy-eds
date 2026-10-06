@@ -1,25 +1,84 @@
-import { SUBSCRIPTION_CUSTOM_FIELD_KEY } from './contract.js';
+import { RECURBUY_SUBSCRIPTION_OPTION_ID } from './contract.js';
 import { saveSelectionForSku } from './selection-store.js';
 
 /**
  * @typedef {import('./contract.js').SubscriptionSelection} SubscriptionSelection
  * @typedef {import('@dropins/storefront-pdp/data/models/values-model').ValuesModel} ValuesModel
+ * @typedef {{ uid: string, value: string }} EnteredOption
  */
 
 /**
- * Merges Adobe PDP cart item values with subscription metadata for add-to-cart.
- * Keeps Commerce cart mutation shape stable while the backend contract evolves.
+ * Normalizes input entered options into an array of EnteredOption objects.
  *
- * Until CartItemInput accepts subscription fields, selection is mirrored to
- * session storage (see selection-store.js) so Cart can render mock details.
- * Do not put unknown keys into the mutation payload — GraphQL will reject them.
+ * @param {unknown} enteredOptions
+ * @returns {EnteredOption[]}
+ */
+function asEnteredOptionsList(enteredOptions) {
+  if (Array.isArray(enteredOptions)) {
+    return enteredOptions
+      .filter((option) => option && typeof option === 'object' && option.uid)
+      .map((option) => ({
+        uid: String(option.uid),
+        value: String(option.value ?? ''),
+      }));
+  }
+
+  if (enteredOptions && typeof enteredOptions === 'object') {
+    return Object.entries(enteredOptions).map(([uid, value]) => ({
+      uid,
+      value: String(value ?? ''),
+    }));
+  }
+
+  return [];
+}
+
+/**
+ * Checks whether an entered option is a legacy/fake RecurBuy subscription marker.
+ *
+ * @param {EnteredOption} option
+ * @returns {boolean}
+ */
+function isRecurbuySubscriptionMarker(option) {
+  const uid = option?.uid;
+  if (!uid) return false;
+  if (uid === RECURBUY_SUBSCRIPTION_OPTION_ID) return true;
+  try {
+    return atob(uid) === `custom-option/${RECURBUY_SUBSCRIPTION_OPTION_ID}`;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Filters out legacy RecurBuy subscription markers, returning only genuine catalog options.
+ * AccS rejects non-catalog option UIDs in GraphQL entered_options.
+ *
+ * @param {unknown} enteredOptions
+ * @returns {EnteredOption[]}
+ */
+function withoutSubscriptionMarker(enteredOptions) {
+  return asEnteredOptionsList(enteredOptions).filter(
+    (option) => !isRecurbuySubscriptionMarker(option),
+  );
+}
+
+/**
+ * Prepares PDP cart item payloads for add-to-cart.
+ *
+ * On AccS, RecurBuy subscription option IDs must NOT be sent in `enteredOptions`.
+ * `enrich` strips any legacy markers from `enteredOptions` and persists the selection
+ * in local state (`selection-store`) for UI and client-side tracking.
  */
 export const CartPayloadAdapter = {
   /**
    * @param {ValuesModel|null|undefined} configurationValues
    * @param {SubscriptionSelection|null|undefined} selection
-   * @param {{ parentSku?: string }} [options]
-   * @returns {ValuesModel & { parentSku?: string }}
+   * @param {{
+   *   parentSku?: string,
+   *   selectedPlan?: import('./contract.js').SubscriptionPlan,
+   * }} [options]
+   * @returns {ValuesModel & { parentSku?: string, enteredOptions?: EnteredOption[] }}
    */
   enrich(configurationValues, selection, options = {}) {
     if (!configurationValues) {
@@ -33,10 +92,22 @@ export const CartPayloadAdapter = {
     const parentSku = options.parentSku || valuesParentSku;
     const base = { ...configurationValues };
 
+    // Strip out any legacy RecurBuy fake markers from entered options
+    const cleanEnteredOptions = withoutSubscriptionMarker(
+      configurationValues.enteredOptions,
+    );
+
     if (parentSku && parentSku !== sku) {
       base.parentSku = parentSku;
     }
 
+    if (cleanEnteredOptions.length) {
+      base.enteredOptions = cleanEnteredOptions;
+    } else {
+      delete base.enteredOptions;
+    }
+
+    // Save UI selection state
     if (!selection || selection.purchaseType === 'one_time') {
       saveSelectionForSku(sku, { purchaseType: 'one_time' });
       if (parentSku && parentSku !== sku) {
@@ -49,57 +120,25 @@ export const CartPayloadAdapter = {
       throw new Error('Subscription plan ID is required for subscription purchase.');
     }
 
-    saveSelectionForSku(sku, selection);
+    const plan = options.selectedPlan;
+    const enrichedSelection = {
+      ...selection,
+      planSnapshot:
+        selection.planSnapshot
+        || (plan
+          ? {
+            planLabel: plan.label,
+            period: plan.period,
+            price: plan.prices?.initial || plan.prices?.regular,
+          }
+          : undefined),
+    };
+
+    saveSelectionForSku(sku, enrichedSelection);
     if (parentSku && parentSku !== sku) {
-      saveSelectionForSku(parentSku, selection);
+      saveSelectionForSku(parentSku, enrichedSelection);
     }
 
-    // Mutation stays Commerce-compatible. Selection lives in session store until
-    // backend CartItemInput / cart item fields exist (see toCustomFields()).
     return base;
-  },
-
-  /**
-   * Builds the future cart mutation customFields payload (not used until schema ready).
-   * @param {SubscriptionSelection|null|undefined} selection
-   * @returns {Record<string, unknown>|undefined}
-   */
-  toCustomFields(selection) {
-    if (!selection || selection.purchaseType !== 'subscription' || !selection.planId) {
-      return undefined;
-    }
-
-    return {
-      [SUBSCRIPTION_CUSTOM_FIELD_KEY]: {
-        purchaseType: selection.purchaseType,
-        planId: selection.planId,
-        customOptionValues: selection.customOptionValues || {},
-      },
-    };
-  },
-
-  /**
-   * @param {Record<string, unknown>|undefined|null} customFields
-   * @returns {SubscriptionSelection|null}
-   */
-  parseCustomFields(customFields) {
-    const subscription = customFields?.[SUBSCRIPTION_CUSTOM_FIELD_KEY];
-    if (!subscription || typeof subscription !== 'object') {
-      return null;
-    }
-
-    const payload = /** @type {Record<string, unknown>} */ (subscription);
-
-    if (payload.purchaseType !== 'subscription') {
-      return { purchaseType: 'one_time' };
-    }
-
-    return {
-      purchaseType: 'subscription',
-      planId: typeof payload.planId === 'string' ? payload.planId : undefined,
-      customOptionValues: /** @type {Record<string, string>|undefined} */ (
-        payload.customOptionValues
-      ),
-    };
   },
 };

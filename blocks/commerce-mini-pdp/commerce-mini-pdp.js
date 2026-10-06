@@ -11,7 +11,6 @@ import {
   provider as UI,
 } from '@dropins/tools/components.js';
 import { h } from '@dropins/tools/preact.js';
-import * as Cart from '@dropins/storefront-cart/api.js';
 
 // PDP Containers for Mini PDP
 import ProductPrice from '@dropins/storefront-pdp/containers/ProductPrice.js';
@@ -25,6 +24,13 @@ import {
   fetchPlaceholders,
   commerceEndpointWithQueryParams,
 } from '../../scripts/commerce.js';
+
+import {
+  CartPayloadAdapter,
+  mountSubscriptionOnPdp,
+} from '../../scripts/subscriptions/index.js';
+import { getSelectionForCartItem } from '../../scripts/subscriptions/selection-store.js';
+import { updateCartItemWithSubscription } from '../../scripts/subscriptions/subscription-add-to-cart.js';
 
 import { loadCSS } from '../../scripts/aem.js';
 
@@ -108,6 +114,8 @@ export default async function createMiniPDP(cartItem, onUpdate, onClose) {
           </a>
         </div>
         <div class="mini-pdp__price"></div>
+        <div class="mini-pdp__subscription-price"></div>
+        <div class="mini-pdp__subscription"></div>
         <div class="mini-pdp__left-column">
           <div class="mini-pdp__gallery"></div>
         </div>
@@ -136,6 +144,8 @@ export default async function createMiniPDP(cartItem, onUpdate, onClose) {
     const $alert = fragment.querySelector('.mini-pdp__alert');
     const $header = fragment.querySelector('.mini-pdp__header');
     const $price = fragment.querySelector('.mini-pdp__price');
+    const $subscription = fragment.querySelector('.mini-pdp__subscription');
+    const $subscriptionPrice = fragment.querySelector('.mini-pdp__subscription-price');
     const $gallery = fragment.querySelector('.mini-pdp__gallery');
     const $options = fragment.querySelector('.mini-pdp__options');
     const $quantity = fragment.querySelector('.mini-pdp__quantity');
@@ -149,8 +159,31 @@ export default async function createMiniPDP(cartItem, onUpdate, onClose) {
       '.mini-pdp__buttons__redirect-to-pdp',
     );
 
-    // State management
+    let latestProductValid = true;
+    /** @type {{ setProps: Function }|null} */
+    let updateButtonRef = null;
     let isLoading = false;
+
+    const storedSelection = getSelectionForCartItem(cartItem);
+    const initialSelection = storedSelection || { purchaseType: 'one_time' };
+
+    const subscriptionController = mountSubscriptionOnPdp({
+      selectorRoot: $subscription,
+      priceRoot: $subscriptionPrice,
+      productPriceRoot: $price,
+      scope: 'modal',
+      initialSelection,
+      onChange: (_selection, meta) => {
+        latestProductValid = meta.productValid;
+        if (!updateButtonRef) return;
+        updateButtonRef.setProps((prev) => ({
+          ...prev,
+          disabled: !meta.productValid || !meta.selectionValid || isLoading,
+        }));
+      },
+    });
+
+    // State management
     let inlineAlert = null;
 
     // Render components
@@ -209,21 +242,28 @@ export default async function createMiniPDP(cartItem, onUpdate, onClose) {
               throw new Error('Please select all required options');
             }
 
-            // Update cart item with new configuration
+            const catalogProductId = product?.externalId || product?.id;
+            const selection = subscriptionController.getSelection();
+            const cartItemData = CartPayloadAdapter.enrich(
+              values,
+              selection,
+              {
+                parentSku: sku,
+                selectedPlan: selection?.selectedPlan,
+              },
+            );
             const updateData = {
-              uid: cartItem.uid,
-              quantity: values.quantity || cartItem.quantity,
-              ...(values.optionsUIDs
-                && values.optionsUIDs.length > 0 && {
-                optionsUIDs: values.optionsUIDs,
-              }),
+              ...cartItemData,
+              sku: cartItemData.sku || sku,
             };
 
-            const updateResponse = await Cart.updateProductsFromCart([
-              updateData,
-            ]);
+            const updateResponse = await updateCartItemWithSubscription({
+              cartItem: updateData,
+              itemUid: cartItem.uid,
+              selection,
+              catalogProductId,
+            });
 
-            // Trigger cart refresh to ensure UI updates
             events.emit('cart/updated', updateResponse);
 
             inlineAlert?.remove();
@@ -257,7 +297,8 @@ export default async function createMiniPDP(cartItem, onUpdate, onClose) {
               ...prev,
               children:
                 placeholders?.Global?.UpdateProductInCart,
-              disabled: false,
+              disabled: !latestProductValid
+                || !subscriptionController.isSelectionValid(),
             }));
           }
         },
@@ -285,13 +326,25 @@ export default async function createMiniPDP(cartItem, onUpdate, onClose) {
       })($redirectButton),
     ]);
 
+    updateButtonRef = updateButton;
+    updateButtonRef.setProps((prev) => ({
+      ...prev,
+      disabled: !latestProductValid
+        || !subscriptionController.isSelectionValid()
+        || isLoading,
+    }));
+
     // Handle PDP validation events
     events.on(
       'pdp/valid',
       (valid) => {
-        updateButton.setProps((prev) => ({
+        latestProductValid = valid;
+        if (!updateButtonRef) return;
+        updateButtonRef.setProps((prev) => ({
           ...prev,
-          disabled: !valid || isLoading,
+          disabled: !valid
+            || !subscriptionController.isSelectionValid()
+            || isLoading,
         }));
       },
       { eager: true, scope: 'modal' },
