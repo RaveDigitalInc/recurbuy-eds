@@ -78,6 +78,7 @@ import {
   setAddressOnCart,
 } from './utils.js';
 
+import { appendCartProductAttributesSlot } from '../../scripts/helpers/cart-product-attributes-slot.js';
 import {
   authPrivacyPolicyConsentSlot,
   SUPPORT_PATH,
@@ -86,6 +87,7 @@ import {
 } from '../../scripts/commerce.js';
 
 // Initializers
+import '../../scripts/initializers/cart.js';
 import '../../scripts/initializers/account.js';
 import '../../scripts/initializers/checkout.js';
 import '../../scripts/initializers/order.js';
@@ -428,6 +430,9 @@ export default async function decorate(block) {
               height: defaultImageProps.height,
             },
           });
+        },
+        ProductAttributes: (ctx) => {
+          appendCartProductAttributesSlot(ctx, ctx.item, { format: 'cart' });
         },
         Footer: (ctx) => {
           const giftOptions = document.createElement('div');

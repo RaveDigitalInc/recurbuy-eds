@@ -19,7 +19,7 @@ import '../../scripts/initializers/cart.js';
 import { readBlockConfig } from '../../scripts/aem.js';
 import { fetchPlaceholders, rootLink } from '../../scripts/commerce.js';
 
-import { renderCustomAttributes } from '../../scripts/helpers/custom-attributes.js';
+import { appendCartProductAttributesSlot } from '../../scripts/helpers/cart-product-attributes-slot.js';
 import {
   paintMiniCartSubscriptionPrices,
   syncCartSubscriptionDetails,
@@ -269,13 +269,7 @@ export default async function decorate(block) {
         const { item } = ctx;
         const uid = item?.uid;
 
-        const attributesWrapper = document.createElement('div');
-        renderCustomAttributes(
-          attributesWrapper,
-          item?.productAttributes ?? [],
-          'cart',
-        );
-        ctx.appendChild(attributesWrapper);
+        appendCartProductAttributesSlot(ctx, item, { format: 'cart' });
 
         // Dedicated container for subscription metadata to avoid layout collisions
         const subscriptionRoot = document.createElement('div');
