@@ -48,3 +48,4 @@ export {
   createEmptyStorefrontCheckoutSuccessProfiles,
   mapStorefrontCheckoutSuccessPayload,
 } from './adapters/storefront-checkout-success-mapper.js';
+export { createSubscriptionSummaryUpdater } from './cart-order-summary.js';
