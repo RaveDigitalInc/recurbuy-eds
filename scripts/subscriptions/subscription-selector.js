@@ -61,7 +61,7 @@ export function renderSubscriptionSelector(root, state) {
     onCustomOptionChange,
   } = state;
 
-  root.className = 'subscription-selector';
+  root.classList.add('subscription-selector');
   root.dataset.state = viewState;
 
   if (viewState === 'hidden') {
@@ -430,7 +430,7 @@ export function clearSubscriptionSelector(root) {
   if (!root) return;
   root.hidden = true;
   root.innerHTML = '';
-  root.className = 'subscription-selector';
+  root.classList.add('subscription-selector');
   delete root.dataset.state;
   delete root.dataset.optionsKey;
 }

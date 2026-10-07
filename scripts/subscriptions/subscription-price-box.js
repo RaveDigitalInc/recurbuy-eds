@@ -34,7 +34,7 @@ export function renderSubscriptionPriceBox(root, state) {
     locale = 'en-US',
   } = state;
 
-  root.className = 'subscription-price-box';
+  root.classList.add('subscription-price-box');
   root.hidden = false;
   root.classList.remove('is-updating');
 
@@ -104,5 +104,5 @@ export function clearSubscriptionPriceBox(root) {
   if (!root) return;
   root.innerHTML = '';
   root.hidden = true;
-  root.className = 'subscription-price-box';
+  root.classList.add('subscription-price-box');
 }

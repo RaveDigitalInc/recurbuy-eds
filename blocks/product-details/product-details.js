@@ -159,9 +159,59 @@ export default async function decorate(block) {
   let noticeTimer = null;
   const routeToWishlist = '/wishlist';
 
-  const showCartNotice = async ({ type, heading, description }) => {
-    inlineAlert?.remove();
+  // Cart notices are shown as a fixed toast so they never shift the page layout.
+  const NOTICE_VISIBLE_MS = 7000;
+  const NOTICE_EXIT_MS = 300;
+  let noticeToast = null;
+  let noticeRemaining = NOTICE_VISIBLE_MS;
+  let noticeStartedAt = 0;
+
+  const getToastHost = () => {
+    let host = document.querySelector('.product-details__toasts');
+    if (!host) {
+      host = document.createElement('div');
+      host.className = 'product-details__toasts';
+      document.body.appendChild(host);
+    }
+    return host;
+  };
+
+  const dismissCartNotice = () => {
     if (noticeTimer) window.clearTimeout(noticeTimer);
+    noticeTimer = null;
+    const toast = noticeToast;
+    const alertInstance = inlineAlert;
+    noticeToast = null;
+    inlineAlert = null;
+    if (!toast) return;
+
+    toast.classList.remove('is-visible');
+    toast.classList.add('is-leaving');
+    window.setTimeout(() => {
+      alertInstance?.remove();
+      toast.remove();
+    }, NOTICE_EXIT_MS);
+  };
+
+  const startNoticeTimer = () => {
+    noticeStartedAt = Date.now();
+    noticeTimer = window.setTimeout(dismissCartNotice, noticeRemaining);
+  };
+
+  const showCartNotice = async ({ type, heading, description }) => {
+    // Replace any notice that is still on screen
+    if (noticeTimer) window.clearTimeout(noticeTimer);
+    noticeTimer = null;
+    inlineAlert?.remove();
+    noticeToast?.remove();
+
+    const toast = document.createElement('div');
+    toast.className = `product-details__toast product-details__toast--${type}`;
+    getToastHost().appendChild(toast);
+    noticeToast = toast;
+
+    const alertSlot = document.createElement('div');
+    toast.appendChild(alertSlot);
 
     inlineAlert = await UI.render(InLineAlert, {
       heading,
@@ -169,22 +219,40 @@ export default async function decorate(block) {
       type,
       variant: 'primary',
       icon: h(Icon, { source: type === 'success' ? 'CheckWithCircle' : 'Warning' }),
-      'aria-live': 'assertive',
-      role: 'alert',
-      onDismiss: () => {
-        inlineAlert?.remove();
-      },
-    })($alert);
-
-    $alert.scrollIntoView({
-      behavior: 'smooth',
-      block: 'center',
-    });
+      'aria-live': type === 'success' ? 'polite' : 'assertive',
+      role: type === 'success' ? 'status' : 'alert',
+      onDismiss: dismissCartNotice,
+    })(alertSlot);
 
     if (type === 'success') {
-      noticeTimer = window.setTimeout(() => {
-        inlineAlert?.remove();
-      }, 5000);
+      const link = document.createElement('a');
+      link.className = 'product-details__toast-link';
+      link.href = rootLink('/cart');
+      link.textContent = labels.Global?.ViewCart || 'View cart';
+      toast.appendChild(link);
+    }
+
+    // Next frame so the browser registers the initial (hidden) state and animates in
+    window.requestAnimationFrame(() => toast.classList.add('is-visible'));
+
+    // Keep errors until dismissed; successes auto-hide and pause while hovered/focused
+    if (type === 'success') {
+      noticeRemaining = NOTICE_VISIBLE_MS;
+      startNoticeTimer();
+
+      const pause = () => {
+        if (!noticeTimer) return;
+        window.clearTimeout(noticeTimer);
+        noticeTimer = null;
+        noticeRemaining = Math.max(2000, noticeRemaining - (Date.now() - noticeStartedAt));
+      };
+      const resume = () => {
+        if (noticeToast === toast && !noticeTimer) startNoticeTimer();
+      };
+      toast.addEventListener('mouseenter', pause);
+      toast.addEventListener('mouseleave', resume);
+      toast.addEventListener('focusin', pause);
+      toast.addEventListener('focusout', resume);
     }
   };
 
