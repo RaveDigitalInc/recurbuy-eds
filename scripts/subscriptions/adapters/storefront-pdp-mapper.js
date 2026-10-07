@@ -61,14 +61,81 @@ function resolveCurrency(currencyFormat, rawCurrency, fallback = 'USD') {
  * @returns {string|undefined}
  */
 function resolvePlanTitle(planOptions, optionKey) {
-  const entry = planOptions?.[optionKey];
-  if (entry && typeof entry === 'object' && entry !== null) {
-    const { title } = /** @type {{ title?: string }} */ (entry);
-    if (typeof title === 'string' && title.trim()) {
-      return title.trim();
+  if (!planOptions || typeof planOptions !== 'object') return undefined;
+
+  const direct = readTitle(planOptions[optionKey]);
+  if (direct) return direct;
+
+  return Object.values(planOptions).reduce((found, nested) => {
+    if (found || !nested || typeof nested !== 'object' || Array.isArray(nested)) {
+      return found;
     }
+    const byId = /** @type {Record<string, unknown>} */ (nested)[optionKey];
+    return readTitle(byId) || found;
+  }, /** @type {string|undefined} */ (undefined));
+}
+
+/**
+ * @param {unknown} entry
+ * @returns {string|undefined}
+ */
+function readTitle(entry) {
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return undefined;
+  const { title } = /** @type {{ title?: unknown }} */ (entry);
+  return typeof title === 'string' && title.trim() ? title.trim() : undefined;
+}
+
+/**
+ * True for Magento's missing-title fallback ("Plan 1"), not a merchant plan name.
+ * @param {string|undefined|null} label
+ * @returns {boolean}
+ */
+function isPlaceholderPlanLabel(label) {
+  return !label || /^Plan \d+$/i.test(String(label).trim());
+}
+
+/**
+ * Same period + cycle count that Magento prints in subscription details
+ * ("Regular Payments / Monthly" + "12 x $22.50" → "Monthly 12").
+ *
+ * @param {Record<string, unknown>|undefined} details
+ * @returns {string|undefined}
+ */
+function planLabelFromPaymentDetails(details) {
+  const regular = details?.regular_payment;
+  if (!regular || typeof regular !== 'object') return undefined;
+
+  const block = /** @type {{ label?: unknown, cycles?: unknown }} */ (regular);
+  const label = typeof block.label === 'string' ? block.label : '';
+  const period = label.includes('/') ? label.split('/').pop()?.trim() : '';
+  const cycles = Number(block.cycles);
+
+  if (period && Number.isFinite(cycles) && cycles > 1) {
+    return `${period} ${cycles}`;
   }
-  return undefined;
+  return period || undefined;
+}
+
+/**
+ * @param {string} optionKey
+ * @param {Record<string, unknown>} opt
+ * @param {import('./storefront-options-list.js').SubscriptionOptionList|null} optionList
+ * @param {Record<string, unknown>|undefined} planOptions
+ * @param {Record<string, unknown>} details
+ * @returns {string}
+ */
+function resolvePlanLabel(optionKey, opt, optionList, planOptions, details) {
+  const candidates = [
+    optionList?.titles?.[String(optionKey)],
+    resolvePlanTitle(planOptions, optionKey),
+    typeof details?.title === 'string' ? details.title : undefined,
+    typeof opt?.label === 'string' ? opt.label : undefined,
+    typeof opt?.name === 'string' ? opt.name : undefined,
+    planLabelFromPaymentDetails(details),
+  ];
+
+  const title = candidates.find((value) => typeof value === 'string' && !isPlaceholderPlanLabel(value));
+  return title?.trim() || `Plan ${optionKey}`;
 }
 
 /**
@@ -124,9 +191,7 @@ export function mapStorefrontPayloadToEligibility(payload, sku, pdpProduct, opti
     const rawPeriod = opt?.finalPrice?.aw_period || details?.period || opt?.aw_period;
     const period = parseSubscriptionPeriod(rawPeriod);
 
-    const planTitle = optionList?.titles?.[String(key)] || resolvePlanTitle(planOptions, key);
-    const fallbackLabel = planTitle || details?.title || `Plan ${key}`;
-    const label = opt?.label || opt?.name || fallbackLabel;
+    const label = resolvePlanLabel(key, opt, optionList, planOptions, details);
     const facts = mapDetailFacts(details);
 
     return {

@@ -31,14 +31,31 @@ function parseSubscriptionOptionListHtml(html) {
 function readSubscriptionOptionList(payload) {
   if (!payload || typeof payload !== 'object') return null;
 
-  const { subscribeAndSave, html, isFirstOptionNoPlan } = payload;
+  const { subscribeAndSave, html, isFirstOptionNoPlan, titles } = payload;
+  const fromHtml = parseSubscriptionOptionListHtml(typeof html === 'string' ? html : '');
   return {
-    titles: parseSubscriptionOptionListHtml(typeof html === 'string' ? html : ''),
+    titles: { ...fromHtml, ...asTitleMap(titles) },
     ...(typeof isFirstOptionNoPlan === 'boolean' && {
       allowOneTime: isFirstOptionNoPlan,
     }),
     ...(subscribeAndSave && typeof subscribeAndSave === 'object' && { subscribeAndSave }),
   };
+}
+
+/**
+ * @param {unknown} value
+ * @returns {Record<string, string>}
+ */
+function asTitleMap(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+
+  /** @type {Record<string, string>} */
+  const titles = {};
+  Object.entries(value).forEach(([id, title]) => {
+    if (!id || id === '0' || typeof title !== 'string' || !title.trim()) return;
+    titles[id] = title.trim();
+  });
+  return titles;
 }
 
 /**
