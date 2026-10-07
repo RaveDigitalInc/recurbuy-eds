@@ -1,6 +1,7 @@
 import { getHeaders } from '@dropins/tools/lib/aem/configs.js';
 import { initializers } from '@dropins/tools/initializer.js';
-import { initialize, setFetchGraphQlHeaders } from '@dropins/storefront-cart/api.js';
+import { config, initialize, setFetchGraphQlHeaders } from '@dropins/storefront-cart/api.js';
+import { createCartModelCustomAttributesTransformer } from '../subscriptions/cart-line-custom-attributes.js';
 import { initializeDropin } from './index.js';
 import { fetchPlaceholders } from '../commerce.js';
 
@@ -15,5 +16,12 @@ await initializeDropin(async () => {
     },
   };
 
-  return initializers.mountImmediately(initialize, { langDefinitions });
+  return initializers.mountImmediately(initialize, {
+    langDefinitions,
+    models: {
+      CartModel: {
+        transformer: createCartModelCustomAttributesTransformer(config),
+      },
+    },
+  });
 })();

@@ -12,6 +12,7 @@ import {
   pruneSelectionsToCartItems,
   saveSelectionForUid,
 } from './selection-store.js';
+import { getSubscriptionStartDateFromCartItem } from './cart-line-custom-attributes.js';
 
 /**
  * @typedef {import('./contract.js').CartSubscriptionDetails} CartSubscriptionDetails
@@ -93,13 +94,15 @@ export function fetchCartItemSubscriptionDetails(item) {
     return null;
   }
 
+  const startDateFromCart = getSubscriptionStartDateFromCartItem(item);
+
   return {
     purchaseType: 'subscription',
     planId: selection.planId,
     planLabel: snapshot.planLabel || `Plan ${selection.planId}`,
     period: snapshot.period || { value: 1, unit: 'month' },
     price: snapshot.price || { value: 0, currency: 'USD' },
-    startDate: snapshot.startDate,
+    startDate: snapshot.startDate || startDateFromCart || undefined,
   };
 }
 
@@ -307,18 +310,12 @@ export function applySubscriptionLinePrices(priceSlots, totalSlots, uid, details
  * @param {CartSubscriptionDetails|null|undefined} details
  */
 export function renderSubscriptionPrice(ctx, details) {
-  if (!ctx || typeof ctx.replaceWith !== 'function') return;
   if (!details || details.purchaseType !== 'subscription' || !details.price) return;
-
-  const row = document.createElement('span');
-  row.className = 'subscription-item-price__row';
-
-  const priceElement = document.createElement('span');
-  priceElement.className = 'subscription-item-price__final';
-  priceElement.setAttribute('aria-label', 'Subscription price');
-  priceElement.textContent = formatMoney(details.price);
-  row.appendChild(priceElement);
-  ctx.replaceWith(row);
+  paintSlotAmount(ctx, {
+    className: 'subscription-item-price__final',
+    label: formatMoney(details.price),
+    ariaLabel: 'Subscription price',
+  });
 }
 
 /**
@@ -466,16 +463,42 @@ function replaceDisplayedPrice(container, label) {
  * @param {number} quantity
  */
 export function renderSubscriptionTotal(ctx, details, quantity) {
-  if (!ctx || typeof ctx.replaceWith !== 'function') return;
   if (!details || details.purchaseType !== 'subscription' || !details.price) return;
   if (typeof quantity !== 'number') return;
 
-  const totalElement = document.createElement('span');
-  totalElement.className = 'subscription-item-total';
-  totalElement.textContent = formatMoney({
-    value: details.price.value * quantity,
-    currency: details.price.currency,
+  paintSlotAmount(ctx, {
+    className: 'subscription-item-total',
+    label: formatMoney({
+      value: details.price.value * quantity,
+      currency: details.price.currency,
+    }),
+    ariaLabel: 'Subscription total',
   });
+}
 
-  ctx.replaceWith(totalElement);
+/**
+ * Writes the subscription amount into the slot's own price node.
+ * `replaceWith` on the slot element pulls that cell out of the table grid and,
+ * on the next refresh, leaves a second price behind.
+ * @param {HTMLElement} ctx
+ * @param {{ className: string, label: string, ariaLabel: string }} paint
+ */
+/** @type {WeakMap<object, HTMLElement>} */
+const paintedSlotAmounts = new WeakMap();
+
+function paintSlotAmount(ctx, { label, ariaLabel }) {
+  if (!ctx || !label || typeof ctx.replaceWith !== 'function') return;
+
+  const existing = paintedSlotAmounts.get(ctx);
+  if (existing?.isConnected) {
+    existing.textContent = label;
+    return;
+  }
+
+  const amount = document.createElement('span');
+  amount.className = 'subscription-line-amount';
+  amount.setAttribute('aria-label', ariaLabel);
+  amount.textContent = label;
+  paintedSlotAmounts.set(ctx, amount);
+  ctx.replaceWith(amount);
 }

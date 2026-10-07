@@ -1,6 +1,7 @@
 /**
  * Client-side subscription selection store.
- * Used until Commerce cart GraphQL returns subscription fields.
+ * Used when Commerce cart GraphQL has not yet returned line custom attributes
+ * (see cart-line-custom-attributes.js) or for plan snapshots before refresh.
  */
 
 const STORAGE_KEY = 'recurbuy.subscription.selections';
