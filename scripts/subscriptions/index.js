@@ -23,10 +23,21 @@ export {
   renderSubscriptionPriceBox,
 } from './subscription-price-box.js';
 export {
+  clearSubscriptionDetails,
   clearSubscriptionSelector,
+  renderSubscriptionDetails,
   renderSubscriptionSelector,
 } from './subscription-selector.js';
 export { mountSubscriptionOnPdp } from './mount-pdp.js';
+export {
+  calculateConfiguredTotal,
+  calculateSubscriptionPrice,
+  calculateTrialPrice,
+  decodeAccsBundleOptionUid,
+  defaultSelectionState,
+  extractAccsBundleOptions,
+  selectionStateFromAccsOptionUids,
+} from './bundle-price.js';
 export {
   clearCartSubscriptionDetails,
   fetchCartItemSubscriptionDetails,

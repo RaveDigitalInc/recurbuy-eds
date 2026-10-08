@@ -99,6 +99,8 @@ export default async function decorate(block) {
             <div class="product-details__buttons__add-to-cart"></div>
             <div class="product-details__buttons__add-to-wishlist"></div>
           </div>
+          <!-- Below Add to Cart (plan selector stays above Color/Size). -->
+          <div class="product-details__subscription-details"></div>
         </div>
         <div class="product-details__description"></div>
       </div>
@@ -113,6 +115,7 @@ export default async function decorate(block) {
   const $galleryMobile = fragment.querySelector('.product-details__right-column .product-details__gallery');
   const $shortDescription = fragment.querySelector('.product-details__short-description');
   const $subscription = fragment.querySelector('.product-details__subscription');
+  const $subscriptionDetails = fragment.querySelector('.product-details__subscription-details');
   const $options = fragment.querySelector('.product-details__options');
   const $quantity = fragment.querySelector('.product-details__quantity');
   const $addToCart = fragment.querySelector('.product-details__buttons__add-to-cart');
@@ -128,6 +131,7 @@ export default async function decorate(block) {
     selectorRoot: $subscription,
     priceRoot: $subscriptionPrice,
     productPriceRoot: $price,
+    detailsRoot: $subscriptionDetails,
     onChange: (_selection, meta) => {
       latestProductValid = meta.productValid;
       if (addToCartRef) {

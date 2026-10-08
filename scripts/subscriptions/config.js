@@ -1,6 +1,7 @@
 import { getConfigValue } from '@dropins/tools/lib/aem/configs.js';
 
-const DEFAULT_TIMEOUT_MS = 10000;
+// Local AccS options-list often takes 12–15s; 10s abort showed as (canceled) in DevTools.
+const DEFAULT_TIMEOUT_MS = 30000;
 
 /**
  * @returns {string|undefined}

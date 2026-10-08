@@ -1,13 +1,27 @@
 import { events } from '@dropins/tools/event-bus.js';
 import * as pdpApi from '@dropins/storefront-pdp/api.js';
-import { fetchEligibility } from './adapters/storefront-adapter.js';
+import {
+  fetchEligibility,
+  peekConfigHasPlansForChild,
+} from './adapters/storefront-adapter.js';
+import {
+  calculateConfiguredTotal,
+  calculateSubscriptionPrice,
+  calculateTrialPrice,
+  defaultSelectionState,
+  extractAccsBundleOptions,
+  rewriteFactMoneyAmounts,
+  selectionStateFromAccsOptionUids,
+} from './bundle-price.js';
 import { SUBSCRIPTION_ERROR_CODES } from './contract.js';
 import {
   clearSubscriptionPriceBox,
   renderSubscriptionPriceBox,
 } from './subscription-price-box.js';
 import {
+  clearSubscriptionDetails,
   clearSubscriptionSelector,
+  renderSubscriptionDetails,
   renderSubscriptionSelector,
 } from './subscription-selector.js';
 
@@ -34,6 +48,7 @@ import {
  *   selectorRoot: HTMLElement,
  *   priceRoot: HTMLElement,
  *   productPriceRoot?: HTMLElement|null,
+ *   detailsRoot?: HTMLElement|null,
  *   scope?: string,
  *   initialSelection?: import('./contract.js').SubscriptionSelection,
  *   onChange?: (selection: SubscriptionSelection, meta: {
@@ -48,6 +63,7 @@ export function mountSubscriptionOnPdp({
   selectorRoot,
   priceRoot,
   productPriceRoot = null,
+  detailsRoot = null,
   scope,
   initialSelection = { purchaseType: 'one_time' },
   onChange,
@@ -68,6 +84,8 @@ export function mountSubscriptionOnPdp({
   let viewState = 'idle';
   let productValid = true;
   let requestSeq = 0;
+  /** @type {string|null} */
+  let lastEligibilityKey = null;
   let destroyed = false;
   /** @type {ReturnType<typeof setTimeout>|null} */
   let debounceTimer = null;
@@ -98,29 +116,141 @@ export function mountSubscriptionOnPdp({
     };
   };
 
+  /**
+   * Magento bundles: AccS GraphQL priceRange is a catalog min/max, not configured
+   * selection × optionPlanData. Selections come from Commerce on `pdp/data`;
+   * RecurBuy only supplies percents. Recalc like Magento `bundle-options-mixin.js`.
+   */
+  const resolveBundlePricedView = () => {
+    const catalogPrices = getStandardPrices();
+    const product = /** @type {ProductModel|null} */ (
+      events.lastPayload('pdp/data', scopeEventOptions) ?? null
+    );
+    const useAdvanced = Boolean(eligibility?.isUsedAdvancedPricing);
+    const bundleOptions = eligibility?.productType === 'bundle'
+      ? extractAccsBundleOptions(product, useAdvanced)
+      : [];
+
+    if (eligibility?.productType !== 'bundle' || !bundleOptions.length) {
+      return {
+        eligibilityForUi: eligibility,
+        standardPrice: catalogPrices.standardPrice,
+        standardRegularPrice: catalogPrices.standardRegularPrice,
+      };
+    }
+
+    const currency = eligibility.currency
+      || catalogPrices.standardPrice?.currency
+      || 'USD';
+    const selectionState = resolveBundleSelectionState(bundleOptions);
+    const configuredTotal = calculateConfiguredTotal(bundleOptions, selectionState);
+
+    const plans = (eligibility.plans || []).map((plan) => {
+      const optionId = Number(plan.id);
+      const regularValue = calculateSubscriptionPrice(
+        bundleOptions,
+        selectionState,
+        optionId,
+        eligibility.optionPlanData,
+      );
+      const trialValue = calculateTrialPrice(
+        bundleOptions,
+        selectionState,
+        optionId,
+        eligibility.optionPlanData,
+      );
+
+      /** @type {import('./contract.js').SubscriptionPlan} */
+      const priced = {
+        ...plan,
+        prices: {
+          regular: { value: regularValue, currency },
+          // Prefer regular when there is no real trial; $0 trialPercent must not become display initial.
+          ...(trialValue != null
+            && trialValue > 0
+            && trialValue !== regularValue
+            ? { initial: { value: trialValue, currency } }
+            : {}),
+        },
+        facts: rewriteFactMoneyAmounts(plan.facts, regularValue, currency),
+      };
+
+      const percent = eligibility.optionPlanData?.[String(plan.id)]?.regularPercent;
+      if (percent != null && Number.isFinite(percent) && percent < 100) {
+        priced.discount = { type: 'percent', value: 100 - percent };
+      }
+
+      return priced;
+    });
+
+    return {
+      eligibilityForUi: {
+        ...eligibility,
+        plans,
+      },
+      standardPrice: { value: configuredTotal, currency },
+      standardRegularPrice: null,
+    };
+  };
+
+  /**
+   * @param {import('./bundle-price.js').AccsBundleOption[]} bundleOptions
+   * @returns {Record<number, number>}
+   */
+  const resolveBundleSelectionState = (bundleOptions) => {
+    const values = /** @type {ValuesModel|null} */ (
+      pdpApi.getProductConfigurationValues(pdpApiOptions)
+      || events.lastPayload('pdp/values', scopeEventOptions)
+      || null
+    );
+    const product = /** @type {ProductModel|null} */ (
+      events.lastPayload('pdp/data', scopeEventOptions) ?? null
+    );
+    const uids = values?.optionsUIDs
+      || /** @type {{ optionUIDs?: string[] }} */ (product)?.optionUIDs
+      || [];
+    const fromUids = selectionStateFromAccsOptionUids(
+      Array.isArray(uids) ? uids : [],
+    );
+    if (Object.keys(fromUids).length > 0) return fromUids;
+
+    return defaultSelectionState(bundleOptions);
+  };
+
   const render = () => {
     if (destroyed) return;
 
     if (viewState === 'hidden' || viewState === 'idle') {
       clearSubscriptionSelector(selectorRoot);
       clearSubscriptionPriceBox(priceRoot);
+      clearSubscriptionDetails(detailsRoot);
       setProductPriceVisibility(false);
       notify();
       return;
     }
 
-    const selectedPlan = eligibility?.plans?.find((plan) => plan.id === selection.planId)
-      || eligibility?.plans?.[0]
+    const {
+      eligibilityForUi,
+      standardPrice,
+      standardRegularPrice,
+    } = resolveBundlePricedView();
+
+    const selectedPlan = eligibilityForUi?.plans?.find((plan) => plan.id === selection.planId)
+      || eligibilityForUi?.plans?.[0]
       || null;
-    const { standardPrice, standardRegularPrice } = getStandardPrices();
+    const showDetails = viewState === 'ready'
+      && selection.purchaseType === 'subscription'
+      && Boolean(selectedPlan);
 
     renderSubscriptionSelector(selectorRoot, {
       viewState: viewState === 'ready' ? 'ready' : viewState,
-      eligibility,
+      eligibility: eligibilityForUi,
       selection,
       error,
       productValid,
       standardPrice,
+      // Details render in detailsRoot (after qty); keep selector free of the block.
+      includeDetails: !detailsRoot,
       onPurchaseTypeChange: (purchaseType) => {
         selection = {
           ...selection,
@@ -149,6 +279,13 @@ export function mountSubscriptionOnPdp({
       },
     });
 
+    if (detailsRoot) {
+      renderSubscriptionDetails(detailsRoot, {
+        plan: showDetails ? selectedPlan : null,
+        visible: showDetails,
+      });
+    }
+
     if (viewState === 'ready') {
       renderSubscriptionPriceBox(priceRoot, {
         purchaseType: selection.purchaseType,
@@ -159,6 +296,7 @@ export function mountSubscriptionOnPdp({
       setProductPriceVisibility(true);
     } else {
       clearSubscriptionPriceBox(priceRoot);
+      clearSubscriptionDetails(detailsRoot);
       setProductPriceVisibility(false);
     }
 
@@ -167,7 +305,10 @@ export function mountSubscriptionOnPdp({
 
   const applyEligibilityResponse = (response) => {
     if (response.error) {
-      if (response.error.code === SUBSCRIPTION_ERROR_CODES.NOT_FOUND) {
+      if (
+        response.error.code === SUBSCRIPTION_ERROR_CODES.NOT_FOUND
+        || response.error.code === SUBSCRIPTION_ERROR_CODES.NOT_ELIGIBLE
+      ) {
         eligibility = null;
         error = null;
         selection = { purchaseType: 'one_time' };
@@ -184,6 +325,7 @@ export function mountSubscriptionOnPdp({
       return;
     }
 
+    const previous = eligibility;
     eligibility = response.data || null;
     error = null;
 
@@ -194,8 +336,18 @@ export function mountSubscriptionOnPdp({
       return;
     }
 
+    // options-list can flake on slow AccS; keep merchant PDP copy / renderer from last success.
+    if (previous && previous.sku === eligibility.sku) {
+      eligibility = {
+        ...eligibility,
+        renderer: eligibility.renderer || previous.renderer,
+        subscribeAndSave: eligibility.subscribeAndSave || previous.subscribeAndSave,
+      };
+    }
+
+    // No plans for this config (e.g. Override=No child without options) — hide like Magento PDP.
     if (!eligibility.eligible || !eligibility.plans?.length) {
-      viewState = 'unavailable';
+      viewState = 'hidden';
       selection = { purchaseType: 'one_time' };
       render();
       return;
@@ -244,13 +396,41 @@ export function mountSubscriptionOnPdp({
     }
 
     const request = buildEligibilityRequest(product, values, initialSelection);
+    const eligibilityKey = [
+      request.product?.externalId || request.productId || '',
+      request.product?.selectedChildExternalId || '',
+      request.subscriptionOptionId || '',
+      request.context || '',
+    ].join('|');
+
+    // AccS emits pdp/data + pdp/values (and refine) often with the same key — skip noise.
+    if (eligibilityKey === lastEligibilityKey && (viewState === 'ready' || viewState === 'hidden')) {
+      return;
+    }
+
     requestSeq += 1;
     const seq = requestSeq;
-    viewState = 'loading';
+    error = null;
+
+    // Cached config: hide without loader when this child has no plans; show loader when it does
+    // (or unknown on first load). Avoids "Loading…" on Override=No empty variants.
+    const knownHasPlans = peekConfigHasPlansForChild(
+      request.product?.externalId || request.productId,
+      request.product?.selectedChildExternalId,
+    );
+    if (knownHasPlans === false) {
+      viewState = 'hidden';
+      eligibility = null;
+      selection = { purchaseType: 'one_time' };
+    } else if (knownHasPlans === null) {
+      viewState = 'loading';
+    }
+    // knownHasPlans === true: keep current UI while remap from cache (no loading flash).
     render();
 
     const response = await fetchEligibility(request);
     if (destroyed || seq !== requestSeq) return;
+    lastEligibilityKey = eligibilityKey;
     applyEligibilityResponse(response);
   };
 
@@ -275,7 +455,12 @@ export function mountSubscriptionOnPdp({
     scheduleRefresh();
   }, eventOptions);
 
+  // Bundle selection changes only need Magento-style client recalc — not a config refetch.
   const valuesListener = events.on('pdp/values', () => {
+    if (viewState === 'ready' && eligibility?.productType === 'bundle') {
+      render();
+      return;
+    }
     scheduleRefresh();
   }, eventOptions);
 
@@ -286,8 +471,9 @@ export function mountSubscriptionOnPdp({
       return { purchaseType: 'one_time' };
     }
 
-    const selectedPlan = eligibility?.plans?.find((plan) => plan.id === selection.planId)
-      || eligibility?.plans?.[0]
+    const { eligibilityForUi } = resolveBundlePricedView();
+    const selectedPlan = eligibilityForUi?.plans?.find((plan) => plan.id === selection.planId)
+      || eligibilityForUi?.plans?.[0]
       || null;
 
     const price = selectedPlan?.prices?.initial || selectedPlan?.prices?.regular;
@@ -332,6 +518,7 @@ export function mountSubscriptionOnPdp({
     validListener?.off?.();
     clearSubscriptionSelector(selectorRoot);
     clearSubscriptionPriceBox(priceRoot);
+    clearSubscriptionDetails(detailsRoot);
     setProductPriceVisibility(false);
   }
 
@@ -353,12 +540,25 @@ function buildEligibilityRequest(product, values, initialSelection) {
   const sku = values?.sku || product.variantSku || product.sku;
   const planId = initialSelection?.planId || initialSelection?.subscriptionOptionId;
   const isEditing = initialSelection?.purchaseType === 'subscription' || Boolean(planId);
+  // Magento SARP always loads config for the configurable parent; AccS variant
+  // selection sets externalId to the child — prefer externalParentId for API.
+  const parentExternalId = typeof product.externalParentId === 'string'
+    ? product.externalParentId.trim()
+    : '';
+  const childExternalId = product.externalId ? String(product.externalId) : undefined;
+  const catalogExternalId = parentExternalId || childExternalId;
+  const selectedChildExternalId = parentExternalId
+    && childExternalId
+    && parentExternalId !== childExternalId
+    ? childExternalId
+    : undefined;
 
   return {
     sku,
-    productId: product.externalId ? Number(product.externalId) : undefined,
+    productId: catalogExternalId ? Number(catalogExternalId) : undefined,
     product: {
-      externalId: product.externalId ? String(product.externalId) : undefined,
+      ...(catalogExternalId && { externalId: catalogExternalId }),
+      ...(selectedChildExternalId && { selectedChildExternalId }),
     },
     ...(planId && { subscriptionOptionId: planId }),
     ...(isEditing && { context: 'edit_item' }),

@@ -7,6 +7,7 @@ import { getValidSubscriptionConfig, getSubscriptionTimeoutMs } from '../config.
  * @typedef {Object} SubscriptionOptionList
  * @property {Record<string, string>} titles Option id → plan title
  * @property {boolean} [allowOneTime] True when the list starts with the one-off row
+ * @property {'radiobutton'|'dropdown'} [renderer]
  * @property {{ text?: string, tooltip?: string, isVisible?: boolean }} [subscribeAndSave]
  */
 
@@ -31,13 +32,15 @@ function parseSubscriptionOptionListHtml(html) {
 function readSubscriptionOptionList(payload) {
   if (!payload || typeof payload !== 'object') return null;
 
-  const { subscribeAndSave, html, isFirstOptionNoPlan, titles } = payload;
+  const { subscribeAndSave, html, isFirstOptionNoPlan, titles, renderer } = payload;
   const fromHtml = parseSubscriptionOptionListHtml(typeof html === 'string' ? html : '');
+  const normalizedRenderer = normalizeRenderer(renderer);
   return {
     titles: { ...fromHtml, ...asTitleMap(titles) },
     ...(typeof isFirstOptionNoPlan === 'boolean' && {
       allowOneTime: isFirstOptionNoPlan,
     }),
+    ...(normalizedRenderer && { renderer: normalizedRenderer }),
     ...(subscribeAndSave && typeof subscribeAndSave === 'object' && { subscribeAndSave }),
   };
 }
@@ -56,6 +59,19 @@ function asTitleMap(value) {
     titles[id] = title.trim();
   });
   return titles;
+}
+
+/**
+ * Magento product_page/subscription_options_renderer values for the drop-in.
+ * @param {unknown} renderer
+ * @returns {'radiobutton'|'dropdown'|undefined}
+ */
+function normalizeRenderer(renderer) {
+  if (typeof renderer !== 'string') return undefined;
+  const value = renderer.trim().toLowerCase();
+  if (value === 'dropdown' || value === 'configurable-dropdown') return 'dropdown';
+  if (value === 'radiobutton' || value === 'configurable-radiobutton') return 'radiobutton';
+  return undefined;
 }
 
 /**

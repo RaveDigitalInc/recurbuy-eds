@@ -11,6 +11,14 @@ import {
   setSubscriptionAttributes,
   nudgeQuantity,
 } from './cart-item-attributes.js';
+import { saveSelectionForSku, saveSelectionForUid } from './selection-store.js';
+
+/**
+ * AccS GraphQL: sales_quote_item_save_before runs on addProductsToCart
+ * *before* setCustomAttributesOnCartItem. Pending-add is required so the
+ * price webhook knows the option on first save. Attrs+nudge remain as backup.
+ */
+const USE_PENDING_SUBSCRIPTION_ADD = true;
 
 /**
  * PDP selection stores the RecurBuy option on `planId`.
@@ -66,8 +74,13 @@ export async function resolveCartId() {
  * @param {number|string} catalogProductId
  * @returns {Promise<string|number>}
  */
-async function registerPendingSubscription(cartId, sku, selection, catalogProductId) {
+async function registerPendingSubscription(cartId, sku, selection, catalogProductId, parentSku) {
   const subscriptionOptionId = resolveSubscriptionOptionId(selection);
+
+  if (!USE_PENDING_SUBSCRIPTION_ADD) {
+    return subscriptionOptionId;
+  }
+
   if (!catalogProductId) {
     throw new Error('[RecurBuy] Missing catalogProductId required for pending subscription add.');
   }
@@ -78,6 +91,18 @@ async function registerPendingSubscription(cartId, sku, selection, catalogProduc
     subscriptionOptionId,
     catalogProductId,
   });
+
+  // AccS configurable: add may use parent SKU while save_before webhook sends child SKU.
+  // Duplicate pending under parent so either key can be consumed (SaaS also indexes by product id).
+  const normalizedParent = typeof parentSku === 'string' ? parentSku.trim() : '';
+  if (normalizedParent && normalizedParent !== String(sku).trim()) {
+    await postPendingSubscriptionAdd({
+      cartId,
+      sku: normalizedParent,
+      subscriptionOptionId,
+      catalogProductId,
+    });
+  }
 
   return subscriptionOptionId;
 }
@@ -112,20 +137,29 @@ export async function addToCartWithSubscription({
   }
 
   const cartId = await resolveCartId();
+  const cartBefore = await readCartQuietly();
   const subscriptionOptionId = await registerPendingSubscription(
     cartId,
     cartItem.sku,
     selection,
     catalogProductId,
+    cartItem.parentSku,
   );
 
   const addResult = await addProductsToCart([cartItem]);
-  const currentCart = addResult || (await getCartData());
-  const itemUid = findItemUid(currentCart, cartItem.sku);
+  let currentCart = addResult || (await getCartData());
+  let itemUid = resolveAddedItemUid(cartBefore, currentCart, cartItem);
+
+  if (!itemUid && typeof refreshCart === 'function') {
+    currentCart = (await refreshCart()) || currentCart;
+    itemUid = resolveAddedItemUid(cartBefore, currentCart, cartItem);
+  }
 
   if (!itemUid) {
     throw new Error(`[RecurBuy] Added item UID not found in cart for SKU: ${cartItem.sku}`);
   }
+
+  rememberResolvedLineSelection(currentCart, itemUid, selection);
 
   // Commerce merges a repeated SKU into the existing line. The PDP quantity is
   // only this add, so writing it back would reset a line of 2 to 1.
@@ -146,11 +180,125 @@ export async function addToCartWithSubscription({
 }
 
 /**
+ * @returns {Promise<Object|null>}
+ */
+async function readCartQuietly() {
+  try {
+    return await getCartData();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * @param {Object|null|undefined} cart
+ * @returns {Array<{ uid?: string, quantity?: number }>}
+ */
+function cartLines(cart) {
+  const items = cart?.items || cart?.itemsV2?.items || [];
+  return Array.isArray(items) ? items : [];
+}
+
+/**
+ * Quote-item identity for this add.
+ * A new variant is a new uid. The same variant is the line whose quantity grew.
+ * Configurable children share the parent SKU, so the parent is not an identity.
+ * Selected option UIDs are the variant key Magento stored on the line.
+ *
+ * @param {Object|null|undefined} beforeCart
+ * @param {Object|null|undefined} afterCart
+ * @param {{ sku?: string, optionsUIDs?: string[] }} [cartItem]
+ * @returns {string|null}
+ */
+function resolveAddedItemUid(beforeCart, afterCart, cartItem) {
+  const after = cartLines(afterCart).filter((item) => item?.uid);
+  if (after.length === 0) return null;
+
+  const beforeQty = new Map(
+    cartLines(beforeCart)
+      .filter((item) => item?.uid)
+      .map((item) => [item.uid, Number(item.quantity) || 0]),
+  );
+
+  const delta = beforeQty.size === 0
+    ? after
+    : after.filter((item) => {
+      if (!beforeQty.has(item.uid)) return true;
+      return (Number(item.quantity) || 0) > beforeQty.get(item.uid);
+    });
+
+  if (delta.length === 0) return null;
+
+  const requestedOptions = optionUidSet(cartItem?.optionsUIDs);
+  if (requestedOptions.length > 0) {
+    const byOptions = delta.filter((item) => sameOptionSet(
+      optionUidSet(item.selectedOptionsUIDs),
+      requestedOptions,
+    ));
+    if (byOptions.length === 1) return byOptions[0].uid;
+    if (byOptions.length > 1) return null;
+  }
+
+  const requestedSku = typeof cartItem?.sku === 'string' ? cartItem.sku.trim().toLowerCase() : '';
+  if (requestedSku) {
+    const bySku = delta.filter((item) => {
+      const own = typeof item.sku === 'string' ? item.sku.trim().toLowerCase() : '';
+      return own !== '' && own === requestedSku;
+    });
+    if (bySku.length === 1) return bySku[0].uid;
+  }
+
+  return delta.length === 1 ? delta[0].uid : null;
+}
+
+/**
+ * @param {unknown} value
+ * @returns {string[]}
+ */
+function optionUidSet(value) {
+  const list = Array.isArray(value)
+    ? value
+    : (value && typeof value === 'object' ? Object.values(value) : []);
+
+  return list
+    .map((entry) => String(entry ?? '').trim())
+    .filter((entry) => entry !== '')
+    .sort();
+}
+
+/**
+ * @param {string[]} left
+ * @param {string[]} right
+ * @returns {boolean}
+ */
+function sameOptionSet(left, right) {
+  return left.length > 0
+    && left.length === right.length
+    && left.every((uid, index) => uid === right[index]);
+}
+
+/**
+ * Cart lines use the variant SKU. Persist the snapshot on that SKU and uid so a
+ * later add of another child does not repaint this line with the new plan price.
+ *
  * @param {Object|null|undefined} cart
  * @param {string} itemUid
- * @param {number|string|undefined} fallback
- * @returns {number}
+ * @param {Object|null|undefined} selection
  */
+function rememberResolvedLineSelection(cart, itemUid, selection) {
+  if (!itemUid || !isSubscriptionSelection(selection)) return;
+
+  const items = cart?.items || cart?.itemsV2?.items || [];
+  const line = Array.isArray(items)
+    ? items.find((item) => item?.uid === itemUid)
+    : null;
+  const lineSku = typeof line?.sku === 'string' ? line.sku.trim() : '';
+  if (lineSku) {
+    saveSelectionForSku(lineSku, selection);
+  }
+  saveSelectionForUid(itemUid, selection);
+}
+
 function quantityOnLine(cart, itemUid, fallback) {
   const items = cart?.items || cart?.itemsV2?.items || [];
   const line = Array.isArray(items)
@@ -183,7 +331,13 @@ export async function updateCartItemWithSubscription({
   const isSubscription = isSubscriptionSelection(selection);
   const cartId = isSubscription ? await resolveCartId() : null;
   const subscriptionOptionId = isSubscription
-    ? await registerPendingSubscription(cartId, cartItem.sku, selection, catalogProductId)
+    ? await registerPendingSubscription(
+      cartId,
+      cartItem.sku,
+      selection,
+      catalogProductId,
+      cartItem.parentSku,
+    )
     : null;
 
   const updateResult = await updateProductsFromCart([{
@@ -194,7 +348,8 @@ export async function updateCartItemWithSubscription({
 
   if (isSubscription) {
     const updatedCart = updateResult || (await getCartData());
-    const targetUid = findItemUid(updatedCart, cartItem.sku) || itemUid;
+    const targetUid = findItemUid(updatedCart, cartItem.sku, cartItem.parentSku) || itemUid;
+    rememberResolvedLineSelection(updatedCart, targetUid, selection);
     await persistSubscriptionLine(
       cartId,
       targetUid,

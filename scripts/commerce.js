@@ -504,6 +504,14 @@ export async function fetchPlaceholders(path) {
 }
 
 /**
+ * @param {string} hostname
+ * @returns {boolean}
+ */
+function isLoopbackHostname(hostname) {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
+}
+
+/**
  * Fetches config from remote and saves in session, then returns it, otherwise
  * returns if it already exists.
  *
@@ -525,6 +533,17 @@ export async function getConfigFromSession() {
     ) {
       throw new Error('Config expired');
     }
+
+    // Public HTTPS (ngrok) must not keep a loopback API URL from session cache —
+    // browsers block that as Private Network Access; refetch config.json.
+    const storefrontUrl = parsedConfig?.public?.default?.['subscriptions-storefront-url'];
+    if (typeof storefrontUrl === 'string' && storefrontUrl.trim()) {
+      const apiHost = new URL(storefrontUrl).hostname;
+      if (isLoopbackHostname(apiHost) && !isLoopbackHostname(window.location.hostname)) {
+        throw new Error('Stale loopback storefront URL on public origin');
+      }
+    }
+
     return parsedConfig;
   } catch (e) {
     const config = await fetch(configURL);

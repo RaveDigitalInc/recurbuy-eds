@@ -1,15 +1,15 @@
-import { fetchCheckoutCartItemFlags } from './adapters/storefront-cart-items-adapter.js';
-import { fetchSubscriptionOptionList } from './adapters/storefront-options-list.js';
 import {
-  isPlaceholderPlanLabel,
-  matchStorefrontCartItemFlagsRow,
-  mergeCartSubscriptionDetailsWithFlags,
-} from './adapters/storefront-cart-items-mapper.js';
+  loadQuoteSubscriptionMarkers,
+  subscriptionDetailsFromQuoteMarker,
+} from './adapters/quote-subscription-markers.js';
+import { fetchSubscriptionOptionList } from './adapters/storefront-options-list.js';
+import { isPlaceholderPlanLabel } from './adapters/storefront-cart-items-mapper.js';
 import { formatBillingCycle, formatMoney } from './format.js';
 import {
   getSelectionForCartItem,
   linkSelectionUid,
   pruneSelectionsToCartItems,
+  saveSelectionForSku,
   saveSelectionForUid,
 } from './selection-store.js';
 import { getSubscriptionStartDateFromCartItem } from './cart-line-custom-attributes.js';
@@ -17,6 +17,9 @@ import { getSubscriptionStartDateFromCartItem } from './cart-line-custom-attribu
 /**
  * @typedef {import('./contract.js').CartSubscriptionDetails} CartSubscriptionDetails
  */
+
+/** @type {Promise<Map<string, CartSubscriptionDetails>>|null} */
+let syncInflight = null;
 
 /**
  * Renders subscription details for a cart item.
@@ -118,41 +121,87 @@ export function fetchCartItemSubscriptionDetails(item) {
  * @returns {Promise<Map<string, CartSubscriptionDetails>>}
  */
 export async function syncCartSubscriptionDetails(items, detailsByUid = new Map()) {
+  // Mini-cart and cart page both listen to cart/data — one sync is enough.
+  if (syncInflight) {
+    const shared = await syncInflight;
+    return new Map(shared);
+  }
+
+  syncInflight = runCartSubscriptionSync(items, detailsByUid).finally(() => {
+    syncInflight = null;
+  });
+
+  return syncInflight;
+}
+
+/**
+ * @param {Array<{
+ *   uid?: string,
+ *   sku?: string,
+ *   topLevelSku?: string,
+ *   customFields?: Record<string, unknown>,
+ * }>|null|undefined} items
+ * @param {Map<string, CartSubscriptionDetails>} detailsByUid
+ * @returns {Promise<Map<string, CartSubscriptionDetails>>}
+ */
+async function runCartSubscriptionSync(items, detailsByUid) {
   const next = new Map(detailsByUid);
   const list = items || [];
 
   pruneSelectionsToCartItems(list);
 
-  const flagsRows = await loadCheckoutCartItemFlags();
+  // AccS guest carts: do not call GET …/checkout/cart-items (REST 404 on masked
+  // guest carts). Do not GET subscription-config per cart line either — price is on
+  // the quote; plan title comes from the add-time snapshot or one options-list.
+  const quoteMarkers = await loadQuoteSubscriptionMarkers((await resolveCommerceCartId()) || '');
 
-  await Promise.all(list.map(async (item) => {
-    if (!item?.uid) return;
+  const titleProductIds = new Set();
+  const resolved = await Promise.all(list.map(async (item) => {
+    if (!item?.uid) return null;
 
-    if (item.sku) {
-      linkSelectionUid(item.sku, item.uid);
+    const marker = quoteMarkers.get(item.uid);
+    const quoteDetails = marker ? await subscriptionDetailsFromQuoteMarker(marker) : null;
+    const snapshot = fetchCartItemSubscriptionDetails(item);
+    const details = mergeQuoteDetailsWithSnapshot(quoteDetails, snapshot);
+
+    if (details && isPlaceholderPlanLabel(details.planLabel) && marker?.catalogProductId) {
+      titleProductIds.add(String(marker.catalogProductId));
     }
-    if (item.topLevelSku && item.topLevelSku !== item.sku) {
-      linkSelectionUid(item.topLevelSku, item.uid);
-    }
 
-    const snapshotDetails = fetchCartItemSubscriptionDetails(item);
-    const flagsRow = matchStorefrontCartItemFlagsRow(item, flagsRows);
-    const currencyFallback = item?.price?.currency || item?.regularPrice?.currency || 'USD';
-    const details = await withStorefrontPlanTitle(
-      mergeCartSubscriptionDetailsWithFlags(
-        snapshotDetails,
-        flagsRow,
-        currencyFallback,
-      ),
-      flagsRow,
-    );
+    return { item, marker, details };
+  }));
+
+  /** @type {Map<string, Record<string, string>>} */
+  const titlesByProductId = new Map();
+  if (titleProductIds.size > 0) {
+    await Promise.all([...titleProductIds].map(async (productId) => {
+      const list = await fetchSubscriptionOptionList(productId);
+      titlesByProductId.set(productId, list?.titles || {});
+    }));
+  }
+
+  resolved.forEach((entry) => {
+    if (!entry?.item?.uid) return;
+
+    let { details } = entry;
+    if (details && isPlaceholderPlanLabel(details.planLabel) && entry.marker?.catalogProductId) {
+      const title = titlesByProductId
+        .get(String(entry.marker.catalogProductId))?.[String(details.planId)];
+      if (title) {
+        details = { ...details, planLabel: title };
+      }
+    }
 
     if (details) {
-      next.set(item.uid, details);
+      rememberQuoteSelection(entry.item, details);
+      next.set(entry.item.uid, details);
+    } else if (entry.item.sku) {
+      linkSelectionUid(entry.item.sku, entry.item.uid);
+      next.delete(entry.item.uid);
     } else {
-      next.delete(item.uid);
+      next.delete(entry.item.uid);
     }
-  }));
+  });
 
   // Drop entries for removed items
   const liveUids = new Set(list.map((item) => item?.uid).filter(Boolean));
@@ -164,36 +213,51 @@ export async function syncCartSubscriptionDetails(items, detailsByUid = new Map(
 }
 
 /**
- * Cart flags do not include the plan title. The options-list HTML does,
- * keyed by the same subscription option id, when the quote line has product_id.
+ * The quote attribute is the subscription. Keep a tab snapshot so later paints
+ * in this document do not wait on another cart read.
  *
- * @param {CartSubscriptionDetails|null} details
- * @param {Record<string, unknown>|null|undefined} flagsRow
- * @returns {Promise<CartSubscriptionDetails|null>}
+ * @param {{ uid?: string, sku?: string, topLevelSku?: string }} item
+ * @param {CartSubscriptionDetails} details
  */
-async function withStorefrontPlanTitle(details, flagsRow) {
-  if (!details || !isPlaceholderPlanLabel(details.planLabel)) return details;
+function rememberQuoteSelection(item, details) {
+  const selection = {
+    purchaseType: 'subscription',
+    planId: details.planId,
+    planSnapshot: {
+      planLabel: details.planLabel,
+      period: details.period,
+      price: details.price,
+      ...(details.startDate ? { startDate: details.startDate } : {}),
+    },
+  };
 
-  const productId = flagsRow?.product_id;
-  if (productId === null || productId === undefined || productId === '') return details;
-
-  const optionList = await fetchSubscriptionOptionList(productId);
-  const title = optionList?.titles?.[String(details.planId)];
-  if (!title) return details;
-
-  return { ...details, planLabel: title };
+  if (item.uid) saveSelectionForUid(item.uid, selection);
+  const sku = typeof item.sku === 'string' ? item.sku.trim() : '';
+  const parent = typeof item.topLevelSku === 'string' ? item.topLevelSku.trim() : '';
+  if (sku && sku !== parent) saveSelectionForSku(sku, selection);
 }
 
 /**
- * @returns {Promise<Array<Record<string, unknown>>|null>}
+ * Quote has the unit price; the add-time snapshot keeps the human plan title.
+ *
+ * @param {CartSubscriptionDetails|null} quoteDetails
+ * @param {CartSubscriptionDetails|null} snapshot
+ * @returns {CartSubscriptionDetails|null}
  */
-async function loadCheckoutCartItemFlags() {
-  const cartId = await resolveCommerceCartId();
-  if (!cartId) {
-    return null;
-  }
+function mergeQuoteDetailsWithSnapshot(quoteDetails, snapshot) {
+  if (!quoteDetails) return snapshot;
+  if (!snapshot || snapshot.purchaseType !== 'subscription') return quoteDetails;
 
-  return fetchCheckoutCartItemFlags(cartId);
+  const keepSnapshotLabel = isPlaceholderPlanLabel(quoteDetails.planLabel)
+    && !isPlaceholderPlanLabel(snapshot.planLabel);
+
+  return {
+    ...quoteDetails,
+    planLabel: keepSnapshotLabel ? snapshot.planLabel : quoteDetails.planLabel,
+    period: quoteDetails.period || snapshot.period,
+    endsLabel: quoteDetails.endsLabel || snapshot.endsLabel,
+    startDate: quoteDetails.startDate || snapshot.startDate,
+  };
 }
 
 /**
@@ -331,13 +395,12 @@ export function renderSubscriptionPrice(ctx, details) {
 export function paintMiniCartSubscriptionPrices(items, detailsByUid) {
   const rows = document.querySelectorAll('.cart-mini-cart .dropin-cart-item');
   rows.forEach((row) => {
-    const skuNode = row.querySelector('.dropin-cart-item__sku');
-    const skuText = skuNode?.textContent?.trim().toLowerCase() || '';
-    const item = (items || []).find((entry) => {
-      const sku = entry?.sku?.trim().toLowerCase();
-      const topLevelSku = entry?.topLevelSku?.trim().toLowerCase();
-      return skuText && (skuText === sku || skuText === topLevelSku);
-    });
+    // Bundle (and other) lines can share the same displayed SKU. AccS rows are
+    // tagged `cart-list-item-entry-{uid}` — that uid is the cart line identity.
+    const rowUid = miniCartRowUid(row);
+    const item = rowUid
+      ? (items || []).find((entry) => entry?.uid === rowUid)
+      : null;
     const details = item?.uid ? detailsByUid.get(item.uid) : null;
     const total = row.querySelector('.dropin-cart-item__total');
     const price = row.querySelector('.dropin-cart-item__price');
@@ -367,6 +430,96 @@ export function paintMiniCartSubscriptionPrices(items, detailsByUid) {
     total.style.display = 'none';
     total.dataset.subscriptionHidden = 'true';
   });
+
+  paintMiniCartSubtotal(items, detailsByUid);
+}
+
+/**
+ * @param {Element} row
+ * @returns {string}
+ */
+function miniCartRowUid(row) {
+  const testId = row.getAttribute('data-testid') || '';
+  const match = /^cart-list-item-entry-(.+)$/.exec(testId);
+  return match?.[1] || '';
+}
+
+/**
+ * AccS addProductsToCart cannot carry the subscription option (string entered_options
+ * are rejected). The first cart payload therefore still has the catalog subtotal.
+ * The line price is already the plan amount; keep the footer on that amount too.
+ *
+ * @param {Array<{
+ *   uid?: string,
+ *   quantity?: number,
+ *   price?: { value?: number, currency?: string },
+ *   regularPrice?: { value?: number, currency?: string },
+ * }>|null|undefined} items
+ * @param {Map<string, CartSubscriptionDetails>} detailsByUid
+ */
+function paintMiniCartSubtotal(items, detailsByUid) {
+  const amount = subscriptionAdjustedSubtotal(items, detailsByUid);
+  if (!amount) return;
+
+  const label = formatMoney(amount);
+  if (!label) return;
+
+  document.querySelectorAll([
+    '.cart-mini-cart [data-testid="subtotal-including-tax"]',
+    '.cart-mini-cart [data-testid="subtotal-excluding-tax"]',
+    '.cart-mini-cart [data-testid="subtotal-including-excluding-tax"]',
+  ].join(', ')).forEach((node) => {
+    if (node.childElementCount === 0) {
+      node.textContent = label;
+      return;
+    }
+    replaceDisplayedPrice(node, label);
+  });
+}
+
+/**
+ * @param {Array<{
+ *   uid?: string,
+ *   quantity?: number,
+ *   price?: { value?: number, currency?: string },
+ *   regularPrice?: { value?: number, currency?: string },
+ * }>|null|undefined} items
+ * @param {Map<string, CartSubscriptionDetails>} detailsByUid
+ * @returns {import('./contract.js').MoneyAmount|null}
+ */
+export function subscriptionAdjustedSubtotal(items, detailsByUid) {
+  const list = items || [];
+  if (list.length === 0) return null;
+
+  let currency = 'USD';
+  let sum = 0;
+  let adjusted = false;
+
+  for (const item of list) {
+    const quantity = Number(item?.quantity) > 0 ? Number(item.quantity) : 1;
+    const details = item?.uid ? detailsByUid.get(item.uid) : null;
+    if (details?.purchaseType === 'subscription' && typeof details.price?.value === 'number') {
+      sum += details.price.value * quantity;
+      currency = details.price.currency || currency;
+      adjusted = true;
+      continue;
+    }
+
+    const unit = typeof item?.price?.value === 'number'
+      ? item.price.value
+      : item?.regularPrice?.value;
+    if (typeof unit !== 'number') return null;
+
+    sum += unit * quantity;
+    currency = item?.price?.currency || item?.regularPrice?.currency || currency;
+  }
+
+  if (!adjusted) return null;
+
+  return {
+    value: Math.round(sum * 100) / 100,
+    currency,
+  };
 }
 
 /**

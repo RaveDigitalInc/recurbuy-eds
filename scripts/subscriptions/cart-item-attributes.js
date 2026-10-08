@@ -31,14 +31,46 @@ const UPDATE_CART_ITEMS_MUTATION = `
 `;
 
 /**
+ * Collect SKU strings AccS/drop-in may expose on a cart line.
+ * Configurable adds use parent SKU in the mutation; cart lines expose the
+ * child as `sku` and the parent as `topLevelSku` (drop-in) / `product.sku` (GQL).
+ *
+ * @param {Object|null|undefined} item
+ * @returns {string[]}
+ */
+function cartItemSkuCandidates(item) {
+  if (!item || typeof item !== 'object') {
+    return [];
+  }
+
+  const configured = item.configuredVariant || item.configured_variant || {};
+  const product = item.product || {};
+
+  return [
+    item.sku,
+    item.topLevelSku,
+    item.parentSku,
+    product.sku,
+    product.topLevelSku,
+    configured.sku,
+  ]
+    .filter((value) => typeof value === 'string' && value.trim() !== '')
+    .map((value) => value.trim().toLowerCase());
+}
+
+/**
  * Finds the GraphQL UID of a cart item matching the given SKU.
  * Works with drop-in `cart.items` and raw GraphQL `cart.itemsV2.items`.
  *
+ * AccS configurable: add with parent SKU (`Configurable-1`); cart item `sku` is
+ * the variant (`Configurable-black-L`) and parent is `topLevelSku`.
+ *
  * @param {Object} cart Drop-in cart object
- * @param {string} sku Product SKU
+ * @param {string} sku Product SKU passed to add (parent or simple)
+ * @param {string} [parentSku] Optional parent SKU when `sku` is a variant
  * @returns {string|null} Cart item UID or null if not found
  */
-export function findItemUid(cart, sku) {
+export function findItemUid(cart, sku, parentSku) {
   if (!cart || !sku) {
     return null;
   }
@@ -48,14 +80,28 @@ export function findItemUid(cart, sku) {
     return null;
   }
 
-  const targetSku = sku.trim().toLowerCase();
+  const wanted = sku.trim().toLowerCase();
+  const parent = typeof parentSku === 'string' ? parentSku.trim().toLowerCase() : '';
 
-  const foundItem = items.findLast((item) => {
-    const itemSku = (item?.product?.sku || item?.sku || item?.topLevelSku || '').trim().toLowerCase();
-    return itemSku === targetSku && Boolean(item?.uid);
+  const exact = items.filter((item) => {
+    if (!item?.uid) return false;
+    const own = typeof item.sku === 'string' ? item.sku.trim().toLowerCase() : '';
+    return own !== '' && own === wanted;
+  });
+  if (exact.length === 1) {
+    return exact[0].uid;
+  }
+
+  // Configurable children share the parent SKU. A parent match is safe only
+  // when the cart has a single line for that parent.
+  const parentMatches = items.filter((item) => {
+    if (!item?.uid) return false;
+    return cartItemSkuCandidates(item).some((candidate) => (
+      candidate === wanted || (parent !== '' && candidate === parent)
+    ));
   });
 
-  return foundItem ? foundItem.uid : null;
+  return parentMatches.length === 1 ? parentMatches[0].uid : null;
 }
 
 /**

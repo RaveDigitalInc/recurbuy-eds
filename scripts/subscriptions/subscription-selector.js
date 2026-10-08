@@ -20,6 +20,30 @@ function escapeHtml(value) {
 }
 
 /**
+ * Merchant PDP copy may include HTML (Magento Subscribe And Save parity).
+ * @param {string} value
+ * @returns {string}
+ */
+function sanitizeMerchantHtml(value) {
+  if (typeof value !== 'string' || !value.trim() || typeof DOMParser === 'undefined') {
+    return escapeHtml(value || '');
+  }
+
+  const doc = new DOMParser().parseFromString(value, 'text/html');
+  doc.querySelectorAll('script, iframe, object, embed, link, meta').forEach((node) => node.remove());
+  doc.body.querySelectorAll('*').forEach((el) => {
+    [...el.attributes].forEach((attr) => {
+      const name = attr.name.toLowerCase();
+      const val = attr.value.trim().toLowerCase();
+      if (name.startsWith('on') || val.startsWith('javascript:')) {
+        el.removeAttribute(attr.name);
+      }
+    });
+  });
+  return doc.body.innerHTML;
+}
+
+/**
  * @typedef {import('./contract.js').SubscriptionEligibility} SubscriptionEligibility
  * @typedef {import('./contract.js').SubscriptionSelection} SubscriptionSelection
  * @typedef {import('./contract.js').SubscriptionError} SubscriptionError
@@ -43,6 +67,7 @@ function escapeHtml(value) {
  *   onPurchaseTypeChange?: (purchaseType: PurchaseType) => void,
  *   onPlanChange?: (planId: string) => void,
  *   onCustomOptionChange?: (code: string, value: string) => void,
+ *   includeDetails?: boolean,
  * }} state
  */
 export function renderSubscriptionSelector(root, state) {
@@ -59,6 +84,7 @@ export function renderSubscriptionSelector(root, state) {
     onPurchaseTypeChange,
     onPlanChange,
     onCustomOptionChange,
+    includeDetails = true,
   } = state;
 
   root.classList.add('subscription-selector');
@@ -116,13 +142,10 @@ export function renderSubscriptionSelector(root, state) {
     : undefined;
   const selectedPlan = eligibility.plans.find((plan) => plan.id === selectedPlanId) || null;
   const allowOneTime = eligibility.allowOneTime !== false;
-  const saveCopy = eligibility.subscribeAndSave;
-  const subscribeTitle = saveCopy?.isVisible && saveCopy.text
-    ? saveCopy.text
-    : 'Subscribe and save';
-  const subscribeTooltip = saveCopy?.tooltip || '';
+  const renderer = eligibility.renderer === 'dropdown' ? 'dropdown' : 'radiobutton';
   const disabledAttr = productValid ? '' : 'disabled';
   const optionsKey = [
+    renderer,
     allowOneTime ? ONE_TIME_VALUE : '',
     ...eligibility.plans.map((plan) => plan.id),
   ].join('\n');
@@ -134,9 +157,13 @@ export function renderSubscriptionSelector(root, state) {
   ) {
     const fieldset = root.querySelector('.subscription-selector__fieldset');
     if (fieldset) fieldset.disabled = !productValid;
-    updateOptionSelection(root, selectedValue);
+    updateOptionSelection(root, selectedValue, renderer);
     updateDisplayedPrices(root, eligibility, standardPrice, locale);
-    replaceRegion(root, '.subscription-selector__details', selectedPlan ? renderPlanDetails(selectedPlan, locale) : '');
+    if (includeDetails) {
+      replaceRegion(root, '.subscription-selector__details', selectedPlan ? renderPlanDetails(selectedPlan, locale) : '');
+    } else {
+      root.querySelector('.subscription-selector__details')?.remove();
+    }
     replaceRegion(
       root,
       '.subscription-selector__custom-options',
@@ -147,25 +174,182 @@ export function renderSubscriptionSelector(root, state) {
   }
 
   root.dataset.optionsKey = optionsKey;
+  root.dataset.renderer = renderer;
   root.innerHTML = `
     <fieldset class="subscription-selector__fieldset" ${disabledAttr}>
       <legend class="subscription-selector__legend">Purchase options</legend>
-      <div class="subscription-selector__options" role="radiogroup" aria-label="Purchase options">
-        ${allowOneTime ? renderOneTimeOption(!isSubscribe, standardPrice, locale) : ''}
-        <div class="subscription-selector__subscribe">
-          <p class="subscription-selector__subscribe-title"${subscribeTooltip ? ` title="${escapeHtml(subscribeTooltip)}"` : ''}>${escapeHtml(subscribeTitle)}</p>
-          ${eligibility.plans.map((plan) => renderPlanOption(
+      <div class="subscription-selector__options" role="${renderer === 'dropdown' ? 'group' : 'radiogroup'}" aria-label="Purchase options">
+        ${renderer === 'dropdown'
+    ? renderDropdownOptions({
+      eligibility,
+      selectedValue,
+      allowOneTime,
+      standardPrice,
+      locale,
+    })
+    : renderRadioOptions({
+      eligibility,
+      selectedValue,
+      allowOneTime,
+      isSubscribe,
+      selectedPlan,
+      standardPrice,
+      locale,
+    })}
+      </div>
+    </fieldset>
+    ${includeDetails && selectedPlan ? renderPlanDetails(selectedPlan, locale) : ''}
+    ${renderCustomOptions(eligibility, selection, isSubscribe)}
+  `;
+
+  bindPurchaseControls(root, onPurchaseTypeChange, onPlanChange);
+  bindCustomOptions(root, onCustomOptionChange);
+}
+
+/**
+ * Magento-style Subscription details block for a separate PDP slot (e.g. after qty).
+ * @param {HTMLElement|null|undefined} root
+ * @param {{
+ *   plan?: import('./contract.js').SubscriptionPlan|null,
+ *   locale?: string,
+ *   visible?: boolean,
+ * }} state
+ */
+export function renderSubscriptionDetails(root, state) {
+  if (!root) return;
+  const {
+    plan = null,
+    locale = 'en-US',
+    visible = true,
+  } = state;
+
+  // Keep host layout class (e.g. product-details__subscription-details) for grid placement.
+  root.classList.add('subscription-details');
+  if (!visible || !plan) {
+    root.hidden = true;
+    root.innerHTML = '';
+    return;
+  }
+
+  const html = renderPlanDetails(plan, locale);
+  if (!html) {
+    root.hidden = true;
+    root.innerHTML = '';
+    return;
+  }
+
+  root.hidden = false;
+  root.innerHTML = html;
+}
+
+/**
+ * @param {HTMLElement|null|undefined} root
+ */
+export function clearSubscriptionDetails(root) {
+  if (!root) return;
+  root.hidden = true;
+  root.innerHTML = '';
+}
+
+/**
+ * @param {{
+ *   eligibility: SubscriptionEligibility,
+ *   selectedValue: string,
+ *   allowOneTime: boolean,
+ *   isSubscribe: boolean,
+ *   selectedPlan: import('./contract.js').SubscriptionPlan|null,
+ *   standardPrice: import('./contract.js').MoneyAmount|null,
+ *   locale: string,
+ * }} args
+ */
+function renderRadioOptions({
+  eligibility,
+  allowOneTime,
+  isSubscribe,
+  selectedPlan,
+  standardPrice,
+  locale,
+}) {
+  return `
+    ${allowOneTime ? renderOneTimeOption(!isSubscribe, standardPrice, locale) : ''}
+    <div class="subscription-selector__subscribe">
+      ${renderSubscribeAndSaveHeading(eligibility.subscribeAndSave)}
+      ${eligibility.plans.map((plan) => renderPlanOption(
     plan,
     isSubscribe && plan.id === selectedPlan?.id,
     locale,
   )).join('')}
-        </div>
-      </div>
-    </fieldset>
-    ${selectedPlan ? renderPlanDetails(selectedPlan, locale) : ''}
-    ${renderCustomOptions(eligibility, selection, isSubscribe)}
+    </div>
   `;
+}
 
+/**
+ * Magento dropdown renderer: one select for one-off + plans.
+ * @param {{
+ *   eligibility: SubscriptionEligibility,
+ *   selectedValue: string,
+ *   allowOneTime: boolean,
+ *   standardPrice: import('./contract.js').MoneyAmount|null,
+ *   locale: string,
+ * }} args
+ */
+function renderDropdownOptions({
+  eligibility,
+  selectedValue,
+  allowOneTime,
+  standardPrice,
+  locale,
+}) {
+  const oneTimeLabel = standardPrice
+    ? `One-time purchase — ${formatMoney(standardPrice, locale)}`
+    : 'One-time purchase';
+
+  return `
+    <div class="subscription-selector__subscribe subscription-selector__subscribe--dropdown">
+      ${renderSubscribeAndSaveHeading(eligibility.subscribeAndSave)}
+      <label class="subscription-selector__dropdown-label">
+        <span class="visually-hidden">Subscription plan</span>
+        <select class="subscription-selector__dropdown" name="subscription-choice" aria-label="Subscription plan">
+          ${allowOneTime ? `<option value="${ONE_TIME_VALUE}" ${selectedValue === ONE_TIME_VALUE ? 'selected' : ''}>${escapeHtml(oneTimeLabel)}</option>` : ''}
+          ${eligibility.plans.map((plan) => {
+    const price = formatMoney(getPlanDisplayPrice(plan), locale);
+    const period = formatPeriod(plan.period);
+    const label = [plan.label, price, period].filter(Boolean).join(' — ');
+    return `<option value="${escapeHtml(plan.id)}" ${selectedValue === plan.id ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+  }).join('')}
+        </select>
+      </label>
+    </div>
+  `;
+}
+
+/**
+ * Magento SubscribeAndSaveTooltip: text + optional (?) hover tooltip from API.
+ * @param {{ text?: string, tooltip?: string, isVisible?: boolean }|undefined} saveCopy
+ */
+function renderSubscribeAndSaveHeading(saveCopy) {
+  if (!saveCopy?.isVisible || !saveCopy.text) return '';
+
+  const tooltip = typeof saveCopy.tooltip === 'string' ? saveCopy.tooltip.trim() : '';
+  return `
+    <div class="subscription-selector__subscribe-and-save">
+      <span class="subscription-selector__subscribe-title">${sanitizeMerchantHtml(saveCopy.text)}</span>
+      ${tooltip ? `
+        <span class="subscription-selector__tooltip">
+          <button type="button" class="subscription-selector__tooltip-toggle" aria-label="Subscribe and save details" aria-describedby="subscription-subscribe-tooltip">?</button>
+          <span id="subscription-subscribe-tooltip" class="subscription-selector__tooltip-content" role="tooltip">${sanitizeMerchantHtml(tooltip)}</span>
+        </span>
+      ` : ''}
+    </div>
+  `;
+}
+
+/**
+ * @param {HTMLElement} root
+ * @param {((purchaseType: PurchaseType) => void)|undefined} onPurchaseTypeChange
+ * @param {((planId: string) => void)|undefined} onPlanChange
+ */
+function bindPurchaseControls(root, onPurchaseTypeChange, onPlanChange) {
   root.querySelectorAll('input[name="subscription-choice"]').forEach((input) => {
     input.addEventListener('change', (event) => {
       const { value } = /** @type {HTMLInputElement} */ (event.target);
@@ -177,15 +361,35 @@ export function renderSubscriptionSelector(root, state) {
     });
   });
 
-  bindCustomOptions(root, onCustomOptionChange);
+  const select = root.querySelector('select.subscription-selector__dropdown');
+  if (select) {
+    select.addEventListener('change', (event) => {
+      const { value } = /** @type {HTMLSelectElement} */ (event.target);
+      if (value === ONE_TIME_VALUE) {
+        onPurchaseTypeChange?.('one_time');
+        return;
+      }
+      onPlanChange?.(value);
+    });
+  }
 }
 
 /**
- * Keeps the option list mounted so the selected border can ease instead of snapping.
  * @param {HTMLElement} root
  * @param {string} selectedValue
+ * @param {'radiobutton'|'dropdown'} renderer
  */
-function updateOptionSelection(root, selectedValue) {
+function updateOptionSelection(root, selectedValue, renderer) {
+  if (renderer === 'dropdown') {
+    const select = /** @type {HTMLSelectElement|null} */ (
+      root.querySelector('select.subscription-selector__dropdown')
+    );
+    if (select && select.value !== selectedValue) {
+      select.value = selectedValue;
+    }
+    return;
+  }
+
   root.querySelectorAll('input[name="subscription-choice"]').forEach((input) => {
     const checked = input.value === selectedValue;
     input.checked = checked;
@@ -278,8 +482,9 @@ function renderOneTimeOption(checked, standardPrice, locale) {
  */
 function renderPlanOption(plan, checked, locale) {
   const price = getPlanDisplayPrice(plan);
-  const saving = formatDiscount(plan.discount);
-  const priceSlot = escapeHtml(plan.id);
+  const priceLabel = formatMoney(price, locale);
+  const periodLabel = formatPeriod(plan.period);
+  const savingLabel = formatDiscount(plan.discount);
 
   return `
     <label class="subscription-selector__option ${checked ? 'is-selected' : ''}">
@@ -292,11 +497,11 @@ function renderPlanOption(plan, checked, locale) {
       />
       <span class="subscription-selector__option-body">
         <span class="subscription-selector__option-title">${escapeHtml(plan.label)}</span>
-        <span class="subscription-selector__option-caption">${formatPeriod(plan.period)}</span>
+        ${periodLabel ? `<span class="subscription-selector__option-caption">${escapeHtml(periodLabel)}</span>` : ''}
       </span>
       <span class="subscription-selector__option-meta">
-        <span class="subscription-selector__option-price" data-subscription-price="${priceSlot}">${formatMoney(price, locale)}</span>
-        ${saving ? `<span class="subscription-selector__option-saving" data-subscription-saving="${priceSlot}">${saving}</span>` : ''}
+        <span class="subscription-selector__option-price" data-subscription-price="${escapeHtml(plan.id)}">${priceLabel}</span>
+        ${savingLabel ? `<span class="subscription-selector__option-saving" data-subscription-saving="${escapeHtml(plan.id)}">${escapeHtml(savingLabel)}</span>` : ''}
       </span>
     </label>
   `;
@@ -307,49 +512,64 @@ function renderPlanOption(plan, checked, locale) {
  * @param {string} locale
  * @returns {string}
  */
+/**
+ * Magento {@code aw-sarp2-subscription-details}: under the plan selector, only when a
+ * subscription option is selected (one-off hides the block).
+ * @param {import('./contract.js').SubscriptionPlan} plan
+ * @param {string} locale
+ * @returns {string}
+ */
 function renderPlanDetails(plan, locale) {
+  /** @type {Array<{ label: string, value: string }>} */
+  let rows = [];
+
   if (plan.facts?.length) {
-    return `
-      <div class="subscription-selector__details">
-        <p class="subscription-selector__details-title">Subscription details</p>
-        <ul class="subscription-selector__details-list">
-          ${plan.facts.map((fact) => `
-            <li><span>${escapeHtml(fact.label)}</span> ${escapeHtml(fact.value)}</li>
-          `).join('')}
-        </ul>
-      </div>
-    `;
+    rows = plan.facts
+      .filter((fact) => fact?.label && fact?.value)
+      .map((fact) => ({ label: String(fact.label), value: String(fact.value) }));
+  } else {
+    const periodLabel = formatPeriod(plan.period);
+    const regular = plan.prices?.regular;
+    const initial = plan.prices?.initial;
+    const displayPrice = getPlanDisplayPrice(plan);
+
+    if (initial && regular && initial.value !== regular.value) {
+      rows.push({
+        label: 'First payment',
+        value: `${formatMoney(initial, locale)}, then ${formatMoney(regular, locale)} ${periodLabel}`.trim(),
+      });
+    } else if (displayPrice && periodLabel) {
+      rows.push({
+        label: 'Regular payment',
+        value: `${formatMoney(displayPrice, locale)} ${periodLabel}`.trim(),
+      });
+    }
+
+    if (plan.trial) {
+      rows.push({
+        label: 'Trial',
+        value: `${plan.trial.value}-${plan.trial.unit}`,
+      });
+    }
+
+    if (plan.description) {
+      rows.push({ label: 'Details', value: plan.description });
+    }
   }
 
-  const details = [];
-  const periodLabel = formatPeriod(plan.period);
-  const regular = plan.prices?.regular;
-  const initial = plan.prices?.initial;
-  const displayPrice = getPlanDisplayPrice(plan);
+  if (!rows.length) return '';
 
-  if (initial && regular && initial.value !== regular.value) {
-    details.push(
-      `First payment ${formatMoney(initial, locale)}, then ${formatMoney(regular, locale)} ${periodLabel}`,
-    );
-  } else if (displayPrice && periodLabel) {
-    details.push(`${formatMoney(displayPrice, locale)} ${periodLabel}`);
-  }
-
-  if (plan.trial) {
-    details.push(`Includes a ${plan.trial.value}-${plan.trial.unit} trial`);
-  }
-
-  if (plan.description) {
-    details.push(plan.description);
-  }
-
-  if (!details.length) return '';
-
+  // Magento template: .block-title + .details-field / .details-value rows
   return `
-    <div class="subscription-selector__details">
-      <p class="subscription-selector__details-title">Subscription details</p>
-      <ul class="subscription-selector__details-list">
-        ${details.map((item) => `<li>${item}</li>`).join('')}
+    <div class="subscription-selector__details" data-role="subscription-details">
+      <div class="subscription-selector__details-title">Subscription details</div>
+      <ul class="subscription-selector__details-list" data-role="subscription-details-list">
+        ${rows.map((row) => `
+          <li class="subscription-selector__details-item">
+            <div class="subscription-selector__details-field">${escapeHtml(row.label)}</div>
+            <div class="subscription-selector__details-value">${escapeHtml(row.value)}</div>
+          </li>
+        `).join('')}
       </ul>
     </div>
   `;
@@ -371,7 +591,7 @@ function renderCustomOptions(eligibility, selection, isSubscribe) {
       ${options.map((option) => renderCustomOption(
     option,
     selection.customOptionValues?.[option.code] || '',
-    true,
+    isSubscribe,
   )).join('')}
     </div>
   `;
@@ -385,21 +605,20 @@ function renderCustomOptions(eligibility, selection, isSubscribe) {
  */
 function renderCustomOption(option, value, isSubscribe) {
   const requiredMark = option.required ? ' *' : '';
-
   if (option.type === 'select') {
     return `
       <label class="subscription-selector__custom-option">
-        <span class="subscription-selector__custom-option-label">${option.label}${requiredMark}</span>
+        <span class="subscription-selector__custom-option-label">${escapeHtml(option.label)}${requiredMark}</span>
         <select
           class="subscription-selector__custom-option-control"
-          data-subscription-option="${option.code}"
+          data-subscription-option="${escapeHtml(option.code)}"
           ${isSubscribe ? '' : 'disabled'}
           ${option.required ? 'required' : ''}
         >
           <option value="">Select…</option>
           ${(option.options || []).map((entry) => `
-            <option value="${entry.value}" ${entry.value === value ? 'selected' : ''}>
-              ${entry.label}
+            <option value="${escapeHtml(entry.value)}" ${value === entry.value ? 'selected' : ''}>
+              ${escapeHtml(entry.label)}
             </option>
           `).join('')}
         </select>
@@ -407,15 +626,14 @@ function renderCustomOption(option, value, isSubscribe) {
     `;
   }
 
-  const inputType = option.type === 'date' ? 'date' : 'text';
   return `
     <label class="subscription-selector__custom-option">
-      <span class="subscription-selector__custom-option-label">${option.label}${requiredMark}</span>
+      <span class="subscription-selector__custom-option-label">${escapeHtml(option.label)}${requiredMark}</span>
       <input
         class="subscription-selector__custom-option-control"
-        type="${inputType}"
-        data-subscription-option="${option.code}"
-        value="${value}"
+        type="${option.type === 'date' ? 'date' : 'text'}"
+        data-subscription-option="${escapeHtml(option.code)}"
+        value="${escapeHtml(value)}"
         ${isSubscribe ? '' : 'disabled'}
         ${option.required ? 'required' : ''}
       />
@@ -433,4 +651,5 @@ export function clearSubscriptionSelector(root) {
   root.classList.add('subscription-selector');
   delete root.dataset.state;
   delete root.dataset.optionsKey;
+  delete root.dataset.renderer;
 }
