@@ -23,6 +23,10 @@ import ProductQuantity from '@dropins/storefront-pdp/containers/ProductQuantity.
 import ProductDescription from '@dropins/storefront-pdp/containers/ProductDescription.js';
 import ProductAttributes from '@dropins/storefront-pdp/containers/ProductAttributes.js';
 import ProductGallery from '@dropins/storefront-pdp/containers/ProductGallery.js';
+import {
+  createCartActionValidityBridge,
+  mountProductDetailsSubscription,
+} from '@recurbuy/storefront-eds/extend/product-details.js';
 
 // Libs
 import {
@@ -30,11 +34,6 @@ import {
   setJsonLd,
   fetchPlaceholders,
 } from '../../scripts/commerce.js';
-import {
-  createCartActionValidityBridge,
-  mountProductDetailsSubscription,
-  submitProductDetailsCartIfValid,
-} from '@recurbuy/storefront-eds/extend/product-details.js';
 
 // Initializers
 import { IMAGES_SIZES } from '../../scripts/initializers/pdp.js';
@@ -239,33 +238,45 @@ export default async function decorate(block) {
           disabled: true,
         }));
 
+        // get the current selection values
         const values = pdpApi.getProductConfigurationValues();
-        const productData = events.lastPayload('pdp/data') ?? product;
-        const { submitted } = await submitProductDetailsCartIfValid({
-          configurationValid: pdpApi.isProductConfigurationValid(),
-          subscriptionController,
-          values,
-          productData: productData || product,
-          mode: isUpdateMode ? 'update' : 'add',
-          itemUid: itemUidFromUrl,
-        });
+        const valid = pdpApi.isProductConfigurationValid()
+          && subscriptionController.isSelectionValid();
 
-        if (submitted && isUpdateMode) {
-          const updatedSku = values?.sku || productData?.sku;
-          if (updatedSku) {
-            const cartRedirectUrl = new URL(
-              rootLink('/cart'),
-              window.location.origin,
+        // add or update the product in the cart
+        // Cart API: RecurBuy wrap of Adobe drop-in (same call shape; AccS when plan selected).
+        if (valid) {
+          if (isUpdateMode) {
+            // --- Update existing item ---
+            const { updateProductsFromCart } = await import(
+              '@recurbuy/storefront-eds/extend/cart-api.js'
             );
-            cartRedirectUrl.searchParams.set('itemUid', itemUidFromUrl);
-            window.location.href = cartRedirectUrl.toString();
-          } else {
-            console.warn(
-              'Could not retrieve SKU for updated item. Redirecting to cart without parameter.',
-            );
-            window.location.href = rootLink('/cart');
+
+            await updateProductsFromCart([{ ...values, uid: itemUidFromUrl }]);
+
+            // --- START REDIRECT ON UPDATE ---
+            const updatedSku = values?.sku;
+            if (updatedSku) {
+              const cartRedirectUrl = new URL(
+                rootLink('/cart'),
+                window.location.origin,
+              );
+              cartRedirectUrl.searchParams.set('itemUid', itemUidFromUrl);
+              window.location.href = cartRedirectUrl.toString();
+            } else {
+              // Fallback if SKU is somehow missing (shouldn't happen in normal flow)
+              console.warn(
+                'Could not retrieve SKU for updated item. Redirecting to cart without parameter.',
+              );
+              window.location.href = rootLink('/cart');
+            }
+            return;
           }
-          return;
+          // --- Add new item ---
+          const { addProductsToCart } = await import(
+            '@recurbuy/storefront-eds/extend/cart-api.js'
+          );
+          await addProductsToCart([{ ...values }]);
         }
 
         // reset any previous alerts if successful
@@ -291,7 +302,7 @@ export default async function decorate(block) {
       } finally {
         // Reset button text using the helper function which respects the current mode
         updateAddToCartButtonText(addToCart, isUpdateMode, labels);
-        cartActionValidity.onProductValid(pdpApi.isProductConfigurationValid());
+        cartActionValidity.sync();
       }
     },
   })($addToCart);

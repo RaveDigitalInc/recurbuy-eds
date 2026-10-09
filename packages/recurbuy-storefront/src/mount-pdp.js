@@ -15,6 +15,7 @@ import {
 } from './bundle-price.js';
 import { SUBSCRIPTION_ERROR_CODES } from './contract.js';
 import { endsLabelFromPlanFacts } from './format.js';
+import { saveSelectionForSku } from './selection-store.js';
 import {
   clearSubscriptionPriceBox,
   renderSubscriptionPriceBox,
@@ -95,7 +96,16 @@ export function mountSubscriptionOnPdp({
   const pdpApiOptions = scope ? { scope } : undefined;
 
   const notify = () => {
-    onChange?.(getSelection(), {
+    const nextSelection = getSelection();
+    const product = /** @type {ProductModel|null} */ (
+      events.lastPayload('pdp/data', scopeEventOptions) ?? null
+    );
+    const sku = product?.sku;
+    if (sku) {
+      saveSelectionForSku(sku, nextSelection);
+    }
+
+    onChange?.(nextSelection, {
       active: isActive(),
       selectionValid: isSelectionValid(),
       productValid,

@@ -101,12 +101,11 @@ npm install @recurbuy/storefront-eds
 
 ```json
 /* local file: package (this repo) */
-"@recurbuy/storefront-eds/": "/packages/recurbuy-storefront/src/",
+"@recurbuy/storefront-eds/": "/packages/recurbuy-storefront/",
 "@recurbuy/storefront-eds": "/packages/recurbuy-storefront/src/index.js"
 
-/* after npm install — point import map at wherever EDS serves the package
-   (copy into /scripts/recurbuy-storefront/src or expose node_modules): */
-/* "@recurbuy/storefront-eds/": "/scripts/recurbuy-storefront/src/", */
+/* after npm install — point import map at the served package root: */
+/* "@recurbuy/storefront-eds/": "/scripts/recurbuy-storefront/", */
 /* "@recurbuy/storefront-eds": "/scripts/recurbuy-storefront/src/index.js" */
 ```
 
@@ -171,17 +170,14 @@ const subscriptionController = mountProductDetailsSubscription({
   },
 });
 
-// inside Add to Cart click (after pdpApi validation):
-const result = await submitProductDetailsCart({
-  values: pdpApi.getProductConfigurationValues(),
-  selection: subscriptionController.getSelection(),
-  productData: events.lastPayload('pdp/data'),
-  mode: isUpdateMode ? 'update' : 'add',
-  itemUid: itemUidFromUrl,
-});
+// Keep Adobe add/update control flow — only swap the cart API import:
+const { addProductsToCart } = await import(
+  '@recurbuy/storefront-eds/extend/cart-api.js'
+);
+await addProductsToCart([{ ...values }]);
 ```
 
-`submitProductDetailsCart` runs pending-add (if plan selected) → Magento add → cart item attributes.
+`cart-api` wraps Adobe `addProductsToCart` / `updateProductsFromCart`: if the PDP selector saved a plan for the SKU, it runs pending-add + attrs; otherwise Adobe behaves as usual.
 
 ### 6. Cart block (required)
 

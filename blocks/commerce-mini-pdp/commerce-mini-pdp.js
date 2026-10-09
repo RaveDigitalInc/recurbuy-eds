@@ -16,6 +16,11 @@ import { h } from '@dropins/tools/preact.js';
 import ProductPrice from '@dropins/storefront-pdp/containers/ProductPrice.js';
 import ProductOptions from '@dropins/storefront-pdp/containers/ProductOptions.js';
 import ProductQuantity from '@dropins/storefront-pdp/containers/ProductQuantity.js';
+import {
+  createCartActionValidityBridge,
+  mountProductDetailsSubscription,
+  resolveCartItemInitialSelection,
+} from '@recurbuy/storefront-eds/extend/product-details.js';
 
 // Initializers
 import '../../scripts/initializers/cart.js';
@@ -24,12 +29,6 @@ import {
   fetchPlaceholders,
   commerceEndpointWithQueryParams,
 } from '../../scripts/commerce.js';
-import {
-  createCartActionValidityBridge,
-  mountProductDetailsSubscription,
-  resolveCartItemInitialSelection,
-  submitMiniPdpCartUpdate,
-} from '@recurbuy/storefront-eds/extend/product-details.js';
 
 import { loadCSS } from '../../scripts/aem.js';
 
@@ -228,16 +227,33 @@ export default async function createMiniPDP(cartItem, onUpdate, onClose) {
               disabled: true,
             }));
 
-            const updateData = await submitMiniPdpCartUpdate({
-              configurationValid: pdpApi.isProductConfigurationValid({ scope: 'modal' }),
-              subscriptionController,
-              values: pdpApi.getProductConfigurationValues({ scope: 'modal' }),
-              product,
-              sku,
-              cartItem,
-            });
+            // Get current product configuration
+            const values = pdpApi.getProductConfigurationValues({ scope: 'modal' });
+            const valid = pdpApi.isProductConfigurationValid({ scope: 'modal' })
+              && subscriptionController.isSelectionValid();
 
-            events.emit('cart/updated', updateData);
+            if (!valid) {
+              throw new Error('Please select all required options');
+            }
+
+            // Update cart item with new configuration (RecurBuy cart-api wrap).
+            const updateData = {
+              uid: cartItem.uid,
+              quantity: values.quantity || cartItem.quantity,
+              ...(values.optionsUIDs
+                && values.optionsUIDs.length > 0 && {
+                optionsUIDs: values.optionsUIDs,
+              }),
+              sku: values.sku || sku,
+            };
+
+            const { updateProductsFromCart } = await import(
+              '@recurbuy/storefront-eds/extend/cart-api.js'
+            );
+            const updateResponse = await updateProductsFromCart([updateData]);
+
+            // Trigger cart refresh to ensure UI updates
+            events.emit('cart/updated', updateResponse);
 
             inlineAlert?.remove();
 

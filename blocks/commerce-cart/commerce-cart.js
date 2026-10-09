@@ -23,11 +23,11 @@ import { tryRenderAemAssetsImage } from '@dropins/tools/lib/aem/assets.js';
 
 // API
 import { publishShoppingCartViewEvent } from '@dropins/storefront-cart/api.js';
+import { createCartSubscriptionSession } from '@recurbuy/storefront-eds/extend/cart.js';
 
 // Modal and Mini PDP
 import createModal from '../modal/modal.js';
 import createMiniPDP from '../commerce-mini-pdp/commerce-mini-pdp.js';
-import { createCartSubscriptionSession } from '@recurbuy/storefront-eds/extend/cart.js';
 
 // Initializers
 import '../../scripts/initializers/cart.js';

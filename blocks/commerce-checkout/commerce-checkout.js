@@ -64,6 +64,7 @@ import { render as OrderProvider } from '@dropins/storefront-order/render.js';
 import { PaymentMethodCode } from '@dropins/storefront-payment-services/api.js';
 import CreditCard from '@dropins/storefront-payment-services/containers/CreditCard.js';
 import { render as PaymentServices } from '@dropins/storefront-payment-services/render.js';
+import { createCheckoutProductAttributesSlot } from '@recurbuy/storefront-eds/extend/cart.js';
 import { getUserTokenCookie } from '../../scripts/initializers/index.js';
 
 // Block-level
@@ -78,7 +79,6 @@ import {
   setAddressOnCart,
 } from './utils.js';
 
-import { createCheckoutProductAttributesSlot } from '@recurbuy/storefront-eds/extend/cart.js';
 import {
   authPrivacyPolicyConsentSlot,
   SUPPORT_PATH,

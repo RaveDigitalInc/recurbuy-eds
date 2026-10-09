@@ -9,6 +9,7 @@ import {
   Button,
 } from '@dropins/tools/components.js';
 import { h } from '@dropins/tools/preact.js';
+import { createCartSubscriptionSession } from '@recurbuy/storefront-eds/extend/cart.js';
 
 import createModal from '../modal/modal.js';
 import createMiniPDP from '../commerce-mini-pdp/commerce-mini-pdp.js';
@@ -18,7 +19,6 @@ import '../../scripts/initializers/cart.js';
 
 import { readBlockConfig } from '../../scripts/aem.js';
 import { fetchPlaceholders, rootLink } from '../../scripts/commerce.js';
-import { createCartSubscriptionSession } from '@recurbuy/storefront-eds/extend/cart.js';
 
 export default async function decorate(block) {
   const {

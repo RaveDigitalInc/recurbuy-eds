@@ -6,13 +6,17 @@
   "type": "module",
   "exports": {
     ".": "./src/index.js",
-    "./extend/product-details.js": "./src/extend/product-details.js",
-    "./extend/cart.js": "./src/extend/cart.js",
-    "./extend/initializer.js": "./src/extend/initializer.js",
+    "./extend/product-details.js": "./extend/product-details.js",
+    "./extend/cart.js": "./extend/cart.js",
+    "./extend/cart-api.js": "./extend/cart-api.js",
+    "./extend/initializer.js": "./extend/initializer.js",
     "./styles/recurbuy-storefront.css": "./styles/recurbuy-storefront.css",
+    "./helpers/*": "./src/helpers/*",
+    "./src/*": "./src/*",
     "./*": "./src/*"
   },
   "files": [
+    "extend",
     "src",
     "styles",
     "README.md"
