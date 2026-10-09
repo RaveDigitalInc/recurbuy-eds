@@ -32,7 +32,13 @@ function parseSubscriptionOptionListHtml(html) {
 function readSubscriptionOptionList(payload) {
   if (!payload || typeof payload !== 'object') return null;
 
-  const { subscribeAndSave, html, isFirstOptionNoPlan, titles, renderer } = payload;
+  const {
+    subscribeAndSave,
+    html,
+    isFirstOptionNoPlan,
+    titles,
+    renderer,
+  } = payload;
   const fromHtml = parseSubscriptionOptionListHtml(typeof html === 'string' ? html : '');
   const normalizedRenderer = normalizeRenderer(renderer);
   return {

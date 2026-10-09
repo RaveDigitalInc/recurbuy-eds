@@ -256,9 +256,12 @@ function resolveAddedItemUid(beforeCart, afterCart, cartItem) {
  * @returns {string[]}
  */
 function optionUidSet(value) {
-  const list = Array.isArray(value)
-    ? value
-    : (value && typeof value === 'object' ? Object.values(value) : []);
+  let list = [];
+  if (Array.isArray(value)) {
+    list = value;
+  } else if (value && typeof value === 'object') {
+    list = Object.values(value);
+  }
 
   return list
     .map((entry) => String(entry ?? '').trim())

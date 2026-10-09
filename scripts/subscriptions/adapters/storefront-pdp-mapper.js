@@ -73,21 +73,22 @@ function resolvePlanTitle(planOptions, optionKey, selectedChildId, parentProduct
   if (flatTitle) return flatTitle;
 
   const preferredIds = [selectedChildId, parentProductId].filter(Boolean);
-  for (const productId of preferredIds) {
-    const bucket = planOptions[productId];
-    if (!bucket || typeof bucket !== 'object' || Array.isArray(bucket)) continue;
-    const nestedTitle = readTitle(/** @type {Record<string, unknown>} */ (bucket)[optionKey]);
-    if (nestedTitle) return nestedTitle;
-  }
+  const preferredTitle = preferredIds
+    .map((productId) => {
+      const bucket = planOptions[productId];
+      if (!bucket || typeof bucket !== 'object' || Array.isArray(bucket)) return undefined;
+      return readTitle(/** @type {Record<string, unknown>} */ (bucket)[optionKey]);
+    })
+    .find(Boolean);
+  if (preferredTitle) return preferredTitle;
 
-  for (const bucket of Object.values(planOptions)) {
-    if (!bucket || typeof bucket !== 'object' || Array.isArray(bucket)) continue;
-    if ('title' in bucket || 'plan_id' in bucket) continue;
-    const nestedTitle = readTitle(/** @type {Record<string, unknown>} */ (bucket)[optionKey]);
-    if (nestedTitle) return nestedTitle;
-  }
-
-  return undefined;
+  return Object.values(planOptions)
+    .map((bucket) => {
+      if (!bucket || typeof bucket !== 'object' || Array.isArray(bucket)) return undefined;
+      if ('title' in bucket || 'plan_id' in bucket) return undefined;
+      return readTitle(/** @type {Record<string, unknown>} */ (bucket)[optionKey]);
+    })
+    .find(Boolean);
 }
 
 /**
@@ -141,7 +142,15 @@ function planLabelFromPaymentDetails(details) {
  * @param {string|undefined} [parentProductId]
  * @returns {string}
  */
-function resolvePlanLabel(optionKey, opt, optionList, planOptions, details, selectedChildId, parentProductId) {
+function resolvePlanLabel(
+  optionKey,
+  opt,
+  optionList,
+  planOptions,
+  details,
+  selectedChildId,
+  parentProductId,
+) {
   const candidates = [
     optionList?.titles?.[String(optionKey)],
     resolvePlanTitle(planOptions, optionKey, selectedChildId, parentProductId),
@@ -151,7 +160,9 @@ function resolvePlanLabel(optionKey, opt, optionList, planOptions, details, sele
     planLabelFromPaymentDetails(details),
   ];
 
-  const title = candidates.find((value) => typeof value === 'string' && !isPlaceholderPlanLabel(value));
+  const title = candidates.find(
+    (value) => typeof value === 'string' && !isPlaceholderPlanLabel(value),
+  );
   return title?.trim() || `Plan ${optionKey}`;
 }
 
@@ -209,13 +220,15 @@ function unwrapConfigurableOptionNode(node, selectedChildId) {
   if (selectedChildId && record[selectedChildId] && typeof record[selectedChildId] === 'object') {
     return /** @type {Record<string, any>} */ (record[selectedChildId]);
   }
-  for (const value of Object.values(record)) {
-    if (value && typeof value === 'object' && !Array.isArray(value)) {
-      const child = /** @type {Record<string, any>} */ (value);
-      if (child.finalPrice || child.price || child.regular_payment || child.first_payment) {
-        return child;
-      }
-    }
+  const nestedChild = Object.values(record).find((value) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+    const child = /** @type {Record<string, any>} */ (value);
+    return Boolean(
+      child.finalPrice || child.price || child.regular_payment || child.first_payment,
+    );
+  });
+  if (nestedChild) {
+    return /** @type {Record<string, any>} */ (nestedChild);
   }
   return record;
 }

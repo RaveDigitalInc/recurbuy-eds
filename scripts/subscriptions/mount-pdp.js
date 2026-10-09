@@ -117,6 +117,30 @@ export function mountSubscriptionOnPdp({
   };
 
   /**
+   * @param {import('./bundle-price.js').AccsBundleOption[]} bundleOptions
+   * @returns {Record<number, number>}
+   */
+  const resolveBundleSelectionState = (bundleOptions) => {
+    const values = /** @type {ValuesModel|null} */ (
+      pdpApi.getProductConfigurationValues(pdpApiOptions)
+      || events.lastPayload('pdp/values', scopeEventOptions)
+      || null
+    );
+    const product = /** @type {ProductModel|null} */ (
+      events.lastPayload('pdp/data', scopeEventOptions) ?? null
+    );
+    const uids = values?.optionsUIDs
+      || /** @type {{ optionUIDs?: string[] }} */ (product)?.optionUIDs
+      || [];
+    const fromUids = selectionStateFromAccsOptionUids(
+      Array.isArray(uids) ? uids : [],
+    );
+    if (Object.keys(fromUids).length > 0) return fromUids;
+
+    return defaultSelectionState(bundleOptions);
+  };
+
+  /**
    * Magento bundles: AccS GraphQL priceRange is a catalog min/max, not configured
    * selection × optionPlanData. Selections come from Commerce on `pdp/data`;
    * RecurBuy only supplies percents. Recalc like Magento `bundle-options-mixin.js`.
@@ -165,7 +189,8 @@ export function mountSubscriptionOnPdp({
         ...plan,
         prices: {
           regular: { value: regularValue, currency },
-          // Prefer regular when there is no real trial; $0 trialPercent must not become display initial.
+          // Prefer regular when there is no real trial;
+          // $0 trialPercent must not become display initial.
           ...(trialValue != null
             && trialValue > 0
             && trialValue !== regularValue
@@ -191,30 +216,6 @@ export function mountSubscriptionOnPdp({
       standardPrice: { value: configuredTotal, currency },
       standardRegularPrice: null,
     };
-  };
-
-  /**
-   * @param {import('./bundle-price.js').AccsBundleOption[]} bundleOptions
-   * @returns {Record<number, number>}
-   */
-  const resolveBundleSelectionState = (bundleOptions) => {
-    const values = /** @type {ValuesModel|null} */ (
-      pdpApi.getProductConfigurationValues(pdpApiOptions)
-      || events.lastPayload('pdp/values', scopeEventOptions)
-      || null
-    );
-    const product = /** @type {ProductModel|null} */ (
-      events.lastPayload('pdp/data', scopeEventOptions) ?? null
-    );
-    const uids = values?.optionsUIDs
-      || /** @type {{ optionUIDs?: string[] }} */ (product)?.optionUIDs
-      || [];
-    const fromUids = selectionStateFromAccsOptionUids(
-      Array.isArray(uids) ? uids : [],
-    );
-    if (Object.keys(fromUids).length > 0) return fromUids;
-
-    return defaultSelectionState(bundleOptions);
   };
 
   const render = () => {

@@ -41,11 +41,11 @@ export function selectionStateFromAccsOptionUids(optionsUIDs) {
   const state = {};
   if (!Array.isArray(optionsUIDs)) return state;
 
-  for (const uid of optionsUIDs) {
+  optionsUIDs.forEach((uid) => {
     const decoded = decodeAccsBundleOptionUid(uid);
-    if (!decoded) continue;
+    if (!decoded) return;
     state[decoded.optionId] = decoded.selectionId;
-  }
+  });
   return state;
 }
 
@@ -76,39 +76,39 @@ export function extractAccsBundleOptions(product, useAdvancedPricing = false) {
   const options = product?.options;
   if (!Array.isArray(options) || options.length === 0) return [];
 
-  /** @type {AccsBundleOption[]} */
-  const result = [];
-
-  for (const option of options) {
+  return options.flatMap((option) => {
     const optionId = Number(option?.id);
-    if (!Number.isFinite(optionId) || optionId <= 0) continue;
+    if (!Number.isFinite(optionId) || optionId <= 0) return [];
 
-    const items = Array.isArray(option.items)
-      ? option.items
-      : (Array.isArray(option.values) ? option.values : []);
-    if (!items.length) continue;
+    let items = [];
+    if (Array.isArray(option.items)) {
+      items = option.items;
+    } else if (Array.isArray(option.values)) {
+      items = option.values;
+    }
+    if (!items.length) return [];
 
-    /** @type {AccsBundleSelection[]} */
-    const selections = [];
-
-    for (const item of items) {
-      const uid = typeof item?.id === 'string'
-        ? item.id
-        : (typeof item?.value === 'string' ? item.value : '');
+    const selections = items.flatMap((item) => {
+      let uid = '';
+      if (typeof item?.id === 'string') {
+        uid = item.id;
+      } else if (typeof item?.value === 'string') {
+        uid = item.value;
+      }
       const decoded = decodeAccsBundleOptionUid(uid);
       const selectionId = decoded?.selectionId
         ?? Number(item?.selection_id)
         ?? 0;
-      if (!selectionId) continue;
+      if (!selectionId) return [];
 
       const qty = decoded?.qty
         || Number(item?.quantity)
         || Number(item?.qty)
         || 1;
       const unitPrice = readAccsSelectionUnitPrice(item, useAdvancedPricing);
-      if (unitPrice == null) continue;
+      if (unitPrice == null) return [];
 
-      selections.push({
+      return [{
         selection_id: selectionId,
         uid,
         price: unitPrice,
@@ -118,15 +118,11 @@ export function extractAccsBundleOptions(product, useAdvancedPricing = false) {
           || item?.is_default
           || item?.selected,
         ),
-      });
-    }
+      }];
+    });
 
-    if (selections.length) {
-      result.push({ option_id: optionId, selections });
-    }
-  }
-
-  return result;
+    return selections.length ? [{ option_id: optionId, selections }] : [];
+  });
 }
 
 /**
@@ -177,13 +173,13 @@ export function defaultSelectionState(bundleOptions) {
   const state = {};
   if (!Array.isArray(bundleOptions)) return state;
 
-  for (const option of bundleOptions) {
+  bundleOptions.forEach((option) => {
     const defaultSelection = option.selections?.find((row) => row.is_default)
       || option.selections?.[0];
     if (defaultSelection) {
       state[option.option_id] = defaultSelection.selection_id;
     }
-  }
+  });
   return state;
 }
 
@@ -219,17 +215,16 @@ export function applyPlanPercent(amount, percent) {
  * @returns {number}
  */
 export function calculateConfiguredTotal(bundleOptions, selectionState) {
-  let total = 0;
   if (!Array.isArray(bundleOptions)) return 0;
 
-  for (const option of bundleOptions) {
+  const total = bundleOptions.reduce((sum, option) => {
     const selectionId = selectionState[option.option_id];
-    if (selectionId == null) continue;
+    if (selectionId == null) return sum;
     const selection = option.selections?.find((row) => row.selection_id === selectionId);
-    if (!selection) continue;
+    if (!selection) return sum;
     const qty = selection.qty > 0 ? selection.qty : 1;
-    total += Math.max(0, selection.price) * qty;
-  }
+    return sum + (Math.max(0, selection.price) * qty);
+  }, 0);
 
   return Math.max(0, total);
 }
@@ -247,18 +242,17 @@ export function calculateScaledConfiguredTotal(bundleOptions, selectionState, pe
     return calculateConfiguredTotal(bundleOptions, selectionState);
   }
 
-  let total = 0;
   if (!Array.isArray(bundleOptions)) return 0;
 
-  for (const option of bundleOptions) {
+  const total = bundleOptions.reduce((sum, option) => {
     const selectionId = selectionState[option.option_id];
-    if (selectionId == null) continue;
+    if (selectionId == null) return sum;
     const selection = option.selections?.find((row) => row.selection_id === selectionId);
-    if (!selection) continue;
+    if (!selection) return sum;
     const qty = selection.qty > 0 ? selection.qty : 1;
     const line = Math.max(0, selection.price) * qty;
-    total += applyPlanPercent(line, percent);
-  }
+    return sum + applyPlanPercent(line, percent);
+  }, 0);
 
   return Math.max(0, improvedRoundAmount(total, 2));
 }
@@ -267,7 +261,10 @@ export function calculateScaledConfiguredTotal(bundleOptions, selectionState, pe
  * @param {AccsBundleOption[]} bundleOptions
  * @param {Record<number, number>} selectionState
  * @param {number} subscriptionOptionId
- * @param {Record<string, { trialPercent?: number, regularPercent?: number }>|undefined} optionPlanData
+ * @param {Record<string, {
+ *   trialPercent?: number,
+ *   regularPercent?: number,
+ * }>|undefined} optionPlanData
  * @returns {number}
  */
 export function calculateSubscriptionPrice(
@@ -288,7 +285,10 @@ export function calculateSubscriptionPrice(
  * @param {AccsBundleOption[]} bundleOptions
  * @param {Record<number, number>} selectionState
  * @param {number} subscriptionOptionId
- * @param {Record<string, { trialPercent?: number, regularPercent?: number }>|undefined} optionPlanData
+ * @param {Record<string, {
+ *   trialPercent?: number,
+ *   regularPercent?: number,
+ * }>|undefined} optionPlanData
  * @returns {number|null}
  */
 export function calculateTrialPrice(

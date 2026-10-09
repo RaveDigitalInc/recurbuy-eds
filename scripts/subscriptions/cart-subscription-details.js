@@ -175,8 +175,8 @@ async function runCartSubscriptionSync(items, detailsByUid) {
   const titlesByProductId = new Map();
   if (titleProductIds.size > 0) {
     await Promise.all([...titleProductIds].map(async (productId) => {
-      const list = await fetchSubscriptionOptionList(productId);
-      titlesByProductId.set(productId, list?.titles || {});
+      const optionList = await fetchSubscriptionOptionList(productId);
+      titlesByProductId.set(productId, optionList?.titles || {});
     }));
   }
 
@@ -494,27 +494,33 @@ export function subscriptionAdjustedSubtotal(items, detailsByUid) {
   let currency = 'USD';
   let sum = 0;
   let adjusted = false;
+  let incomplete = false;
 
-  for (const item of list) {
+  list.forEach((item) => {
+    if (incomplete) return;
+
     const quantity = Number(item?.quantity) > 0 ? Number(item.quantity) : 1;
     const details = item?.uid ? detailsByUid.get(item.uid) : null;
     if (details?.purchaseType === 'subscription' && typeof details.price?.value === 'number') {
       sum += details.price.value * quantity;
       currency = details.price.currency || currency;
       adjusted = true;
-      continue;
+      return;
     }
 
     const unit = typeof item?.price?.value === 'number'
       ? item.price.value
       : item?.regularPrice?.value;
-    if (typeof unit !== 'number') return null;
+    if (typeof unit !== 'number') {
+      incomplete = true;
+      return;
+    }
 
     sum += unit * quantity;
     currency = item?.price?.currency || item?.regularPrice?.currency || currency;
-  }
+  });
 
-  if (!adjusted) return null;
+  if (incomplete || !adjusted) return null;
 
   return {
     value: Math.round(sum * 100) / 100,

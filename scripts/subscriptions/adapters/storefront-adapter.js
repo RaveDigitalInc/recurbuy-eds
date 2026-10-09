@@ -55,7 +55,7 @@ function payloadNeedsOptionListTitles(payload) {
   const optionKeys = Object.keys(options || {}).filter((key) => key !== '0');
   if (optionKeys.length === 0) return false;
 
-  const planOptions = payload.planOptions;
+  const { planOptions } = payload;
   if (!planOptions || typeof planOptions !== 'object') return true;
 
   const hasTitle = (entry) => {
@@ -64,14 +64,20 @@ function payloadNeedsOptionListTitles(payload) {
     return typeof title === 'string' && Boolean(title.trim());
   };
 
+  const planOptionRecord = /** @type {Record<string, unknown>} */ (planOptions);
+  const nestedBuckets = Object.values(planOptionRecord).filter(
+    (bucket) => bucket
+      && typeof bucket === 'object'
+      && !Array.isArray(bucket)
+      && !hasTitle(bucket)
+      && !('plan_id' in /** @type {object} */ (bucket)),
+  );
+
   return optionKeys.some((key) => {
-    if (hasTitle(/** @type {Record<string, unknown>} */ (planOptions)[key])) return false;
-    for (const bucket of Object.values(/** @type {Record<string, unknown>} */ (planOptions))) {
-      if (!bucket || typeof bucket !== 'object' || Array.isArray(bucket)) continue;
-      if (hasTitle(bucket) || 'plan_id' in /** @type {object} */ (bucket)) continue;
-      if (hasTitle(/** @type {Record<string, unknown>} */ (bucket)[key])) return false;
-    }
-    return true;
+    if (hasTitle(planOptionRecord[key])) return false;
+    return !nestedBuckets.some(
+      (bucket) => hasTitle(/** @type {Record<string, unknown>} */ (bucket)[key]),
+    );
   });
 }
 

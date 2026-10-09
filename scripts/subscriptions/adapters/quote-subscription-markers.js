@@ -178,9 +178,12 @@ function presentationFromCachedConfig(productId, optionId) {
   const finalPrice = config.regularPrices?.options?.[optionId]?.[productId]?.finalPrice;
   const regularAmount = Number(details.regular_payment?.finalAmount);
   const firstAmount = Number(details.first_payment?.finalAmount);
-  const priceValue = Number.isFinite(firstAmount)
-    ? firstAmount
-    : (Number.isFinite(regularAmount) ? regularAmount : null);
+  let priceValue = null;
+  if (Number.isFinite(firstAmount)) {
+    priceValue = firstAmount;
+  } else if (Number.isFinite(regularAmount)) {
+    priceValue = regularAmount;
+  }
 
   return {
     planLabel: typeof plan?.title === 'string' ? plan.title.trim() : '',

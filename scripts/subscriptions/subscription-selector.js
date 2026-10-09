@@ -35,6 +35,8 @@ function sanitizeMerchantHtml(value) {
     [...el.attributes].forEach((attr) => {
       const name = attr.name.toLowerCase();
       const val = attr.value.trim().toLowerCase();
+      // Strip inline handlers and javascript: URLs from merchant HTML.
+      // eslint-disable-next-line no-script-url -- sanitizer removes this protocol
       if (name.startsWith('on') || val.startsWith('javascript:')) {
         el.removeAttribute(attr.name);
       }
