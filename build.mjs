@@ -35,15 +35,4 @@ overrideGQLOperations([
   //     `,
   //   ],
   // },
-  // {
-  //   npm: '@dropins/storefront-pdp',
-  //   operations: [
-  //     `
-  //     fragment PRODUCT_FRAGMENT on ProductView {
-  //       # пример: кастомное поле, если поддерживается схемой
-  //       # myCustomField
-  //     }
-  //     `,
-  //   ],
-  // },
 ]);
