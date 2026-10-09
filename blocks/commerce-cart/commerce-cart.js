@@ -24,20 +24,11 @@ import { publishShoppingCartViewEvent } from '@dropins/storefront-cart/api.js';
 // Modal and Mini PDP
 import createModal from '../modal/modal.js';
 import createMiniPDP from '../commerce-mini-pdp/commerce-mini-pdp.js';
+import { createCartSubscriptionSession } from '../../packages/recurbuy-storefront/src/extend/cart.js';
 
 // Initializers
 import '../../scripts/initializers/cart.js';
 import '../../scripts/initializers/wishlist.js';
-import { appendCartProductAttributesSlot } from '../../scripts/helpers/cart-product-attributes-slot.js';
-import {
-  applySubscriptionLinePrices,
-  clearCartSubscriptionDetails,
-  fetchCartItemSubscriptionDetails,
-  renderCartSubscriptionDetails,
-  syncCartSubscriptionDetails,
-  createSubscriptionSummaryUpdater,
-  fetchCheckoutConfig,
-} from '../../scripts/subscriptions/index.js';
 
 import { readBlockConfig } from '../../scripts/aem.js';
 import { rootLink, fetchPlaceholders } from '../../scripts/commerce.js';
@@ -61,15 +52,18 @@ export default async function decorate(block) {
   let currentModal = null;
   let currentNotification = null;
 
-  /** Cart item uid -> subscription details from the session snapshot */
-  const subscriptionDetailsByUid = new Map();
-  const subscriptionPriceSlotsByUid = new Map();
-  const subscriptionTotalSlotsByUid = new Map();
-  const subscriptionRootsByUid = new Map();
-  /** Mixed-cart flags and totals copy from RecurBuy `checkout/config` */
-  let checkoutConfig = null;
-  let checkoutConfigCartId = null;
   let orderSummary = null;
+
+  // RecurBuy Extend glue — package owns line attrs, prices, checkout/config.
+  const subscriptions = createCartSubscriptionSession({
+    getCartItems: () => Cart.getCartDataFromCache()?.items || [],
+    labels: {
+      payNow: placeholders?.Global?.YouPayNow,
+      chargedFor: placeholders?.Global?.YouWillBeChargedFor,
+    },
+    showChargedFor: false,
+  });
+  const subscriptionSlots = subscriptions.createSummarySlots();
 
   // Layout
   const fragment = document.createRange().createContextualFragment(`
@@ -183,38 +177,9 @@ export default async function decorate(block) {
     }
   }
 
-  const summaryLabels = {
-    payNow: placeholders?.Global?.YouPayNow,
-    chargedFor: placeholders?.Global?.YouWillBeChargedFor,
-  };
-
   // Shipping and the tax row stay inside the collapsed estimate block.
   // The order total reuses the key `taxContent` at sortOrder 900, so only the
   // earlier tax row is removed.
-
-  const buildSummaryUpdater = () => {
-    const withSubscription = createSubscriptionSummaryUpdater({
-      getItems: () => Cart.getCartDataFromCache()?.items || [],
-      getDetailsByUid: () => subscriptionDetailsByUid,
-      getConfig: () => checkoutConfig,
-      labels: summaryLabels,
-      showChargedFor: false,
-    });
-    return (lineItems) => withSubscription(lineItems).filter((line) => (
-      line.key !== 'shippingContent'
-      && !(line.key === 'taxContent' && line.sortOrder < 900)
-    ));
-  };
-
-  const applySubscriptionPrices = (uid, details, item) => {
-    applySubscriptionLinePrices(
-      subscriptionPriceSlotsByUid,
-      subscriptionTotalSlotsByUid,
-      uid,
-      details,
-      item,
-    );
-  };
 
   // Render Containers
   const getProductLink = (product) => rootLink(`/products/${product.url.urlKey}/${product.topLevelSku}`);
@@ -245,51 +210,7 @@ export default async function decorate(block) {
           });
         },
 
-        Price: (ctx) => {
-          const { item } = ctx;
-          const uid = item?.uid;
-          if (!uid) return;
-
-          subscriptionPriceSlotsByUid.set(uid, { ctx, item });
-          applySubscriptionPrices(uid, subscriptionDetailsByUid.get(uid), item);
-        },
-
-        Subtotal: (ctx) => {
-          const { item } = ctx;
-          const uid = item?.uid;
-          if (!uid) return;
-
-          subscriptionTotalSlotsByUid.set(uid, { ctx, item });
-          applySubscriptionPrices(uid, subscriptionDetailsByUid.get(uid), item);
-        },
-
-        Configurations: (ctx) => {
-          const { item } = ctx;
-          const uid = item?.uid;
-          if (ctx.querySelector?.('.cart-subscription-details')) return;
-
-          appendCartProductAttributesSlot(ctx, item, { format: 'cart' });
-
-          const subscriptionRoot = document.createElement('div');
-          subscriptionRoot.className = 'cart-subscription-details';
-          ctx.appendChild(subscriptionRoot);
-          if (uid) subscriptionRootsByUid.set(uid, subscriptionRoot);
-
-          const cachedDetails = uid ? subscriptionDetailsByUid.get(uid) : null;
-          if (cachedDetails) {
-            renderCartSubscriptionDetails(subscriptionRoot, cachedDetails);
-            return;
-          }
-
-          const details = fetchCartItemSubscriptionDetails(item);
-          if (details && uid) {
-            subscriptionDetailsByUid.set(uid, details);
-            renderCartSubscriptionDetails(subscriptionRoot, details);
-            applySubscriptionPrices(uid, details, item);
-          } else {
-            clearCartSubscriptionDetails(subscriptionRoot);
-          }
-        },
+        ...subscriptionSlots,
 
         Actions: (ctx) => {
           if (enableUpdatingProduct !== 'true') return;
@@ -309,7 +230,7 @@ export default async function decorate(block) {
     })($list),
 
     provider.render(OrderSummary, {
-      updateLineItems: buildSummaryUpdater(),
+      updateLineItems: subscriptions.buildSummaryUpdater(),
       routeCheckout: checkoutURL ? () => rootLink(checkoutURL) : undefined,
     })($summary),
 
@@ -334,33 +255,23 @@ export default async function decorate(block) {
   const refreshOrderSummary = () => {
     orderSummary?.setProps((prev) => ({
       ...prev,
-      updateLineItems: buildSummaryUpdater(),
+      updateLineItems: subscriptions.buildSummaryUpdater(),
     }));
     window.requestAnimationFrame(() => polishSummary($summary, placeholders));
   };
 
   const refreshCheckoutConfig = async (cartData) => {
-    const cartId = cartData?.id;
-    if (!cartId || cartId === checkoutConfigCartId) return;
-    checkoutConfigCartId = cartId;
-    checkoutConfig = await fetchCheckoutConfig(cartId);
-    refreshOrderSummary();
+    try {
+      const changed = await subscriptions.refreshCheckoutConfig(cartData);
+      if (changed) refreshOrderSummary();
+    } catch (error) {
+      console.error('Error refreshing RecurBuy checkout config:', error);
+    }
   };
 
   const refreshSubscriptionDetails = async (items) => {
     try {
-      const next = await syncCartSubscriptionDetails(items, subscriptionDetailsByUid);
-      subscriptionDetailsByUid.clear();
-      next.forEach((details, uid) => {
-        subscriptionDetailsByUid.set(uid, details);
-        const item = (items || []).find((entry) => entry?.uid === uid);
-        applySubscriptionPrices(uid, details, item);
-        const root = subscriptionRootsByUid.get(uid);
-        if (root) renderCartSubscriptionDetails(root, details);
-      });
-      subscriptionRootsByUid.forEach((root, uid) => {
-        if (!next.has(uid)) clearCartSubscriptionDetails(root);
-      });
+      await subscriptions.refreshDetails(items);
       refreshOrderSummary();
     } catch (error) {
       console.error('Error syncing cart subscription details:', error);

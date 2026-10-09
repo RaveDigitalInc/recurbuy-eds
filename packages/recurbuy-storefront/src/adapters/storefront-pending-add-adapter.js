@@ -1,5 +1,5 @@
 import { getValidSubscriptionConfig, getSubscriptionTimeoutMs } from '../config.js';
-import { getUserTokenCookie } from '../../initializers/index.js';
+import { getUserTokenCookie } from '../../../../scripts/initializers/index.js';
 
 /**
  * Posts pending subscription add payload to the RecurBuy storefront checkout API.

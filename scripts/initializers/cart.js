@@ -1,7 +1,7 @@
 import { getHeaders } from '@dropins/tools/lib/aem/configs.js';
 import { initializers } from '@dropins/tools/initializer.js';
 import { config, initialize, setFetchGraphQlHeaders } from '@dropins/storefront-cart/api.js';
-import { createCartModelCustomAttributesTransformer } from '../subscriptions/cart-line-custom-attributes.js';
+import { createCartModelCustomAttributesTransformer } from '../../packages/recurbuy-storefront/src/extend/initializer.js';
 import { initializeDropin } from './index.js';
 import { fetchPlaceholders } from '../commerce.js';
 

@@ -29,19 +29,15 @@ import {
   setJsonLd,
   fetchPlaceholders,
 } from '../../scripts/commerce.js';
+import {
+  mountProductDetailsSubscription,
+  submitProductDetailsCart,
+} from '../../packages/recurbuy-storefront/src/extend/product-details.js';
 
 // Initializers
 import { IMAGES_SIZES } from '../../scripts/initializers/pdp.js';
 import '../../scripts/initializers/cart.js';
 import '../../scripts/initializers/wishlist.js';
-import {
-  CartPayloadAdapter,
-  mountSubscriptionOnPdp,
-} from '../../scripts/subscriptions/index.js';
-import {
-  addToCartWithSubscription,
-  updateCartItemWithSubscription,
-} from '../../scripts/subscriptions/subscription-add-to-cart.js';
 
 // Function to update the Add to Cart button text
 function updateAddToCartButtonText(addToCartInstance, inCart, labels) {
@@ -127,7 +123,8 @@ export default async function decorate(block) {
   let latestProductValid = true;
   /** @type {{ setProps: Function }|null} */
   let addToCartRef = null;
-  const subscriptionController = mountSubscriptionOnPdp({
+  // RecurBuy Extend glue — package owns selector / price / AccS add path.
+  const subscriptionController = mountProductDetailsSubscription({
     selectorRoot: $subscription,
     priceRoot: $subscriptionPrice,
     productPriceRoot: $price,
@@ -364,55 +361,37 @@ export default async function decorate(block) {
           return;
         }
 
-        const catalogProductId = productData?.externalId || product?.externalId;
-
         const selection = subscriptionController.getSelection();
-        const cartItem = CartPayloadAdapter.enrich(
-          values || { sku: productData?.sku, quantity: 1 },
+        const result = await submitProductDetailsCart({
+          values: values || { sku: productData?.sku, quantity: 1 },
           selection,
-          {
-            parentSku: productData?.sku,
-            selectedPlan: selection?.selectedPlan,
-          },
-        );
+          productData: productData || product,
+          mode: isUpdateMode ? 'update' : 'add',
+          itemUid: itemUidFromUrl,
+        });
 
         if (isUpdateMode) {
-          await updateCartItemWithSubscription({
-            cartItem,
-            itemUid: itemUidFromUrl,
-            selection,
-            catalogProductId,
-          });
-
-          const updatedSku = cartItem?.sku;
           const cartRedirectUrl = new URL(
             rootLink('/cart'),
             window.location.origin,
           );
-          if (updatedSku) {
+          if (result.cartItem?.sku) {
             cartRedirectUrl.searchParams.set('itemUid', itemUidFromUrl);
           }
           window.location.href = cartRedirectUrl.toString();
           return;
         }
 
-        const added = await addToCartWithSubscription({
-          cartItem,
-          selection,
-          catalogProductId,
-        });
-
-        if (!added) {
+        if (!result.ok) {
           throw new Error(
             labels.Global?.AddToCartErrorDescription
               || 'The product could not be added to the cart.',
           );
         }
 
-        const productName = productData?.name || 'This product';
         const addedMessage = (
           labels.Global?.AddedToCartMessage || '{product} was added to your cart.'
-        ).replace('{product}', productName);
+        ).replace('{product}', result.productName);
 
         await showCartNotice({
           type: 'success',

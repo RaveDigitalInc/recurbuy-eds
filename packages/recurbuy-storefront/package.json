@@ -1,0 +1,23 @@
+{
+  "name": "@recurbuy/storefront-eds",
+  "version": "0.1.0",
+  "private": true,
+  "description": "RecurBuy AccS / EDS subscription extend glue for Adobe Commerce Storefront drop-ins",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.js",
+    "./extend/product-details.js": "./src/extend/product-details.js",
+    "./extend/cart.js": "./src/extend/cart.js",
+    "./extend/initializer.js": "./src/extend/initializer.js",
+    "./*": "./src/*"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "peerDependencies": {
+    "@dropins/storefront-cart": "*",
+    "@dropins/storefront-pdp": "*",
+    "@dropins/tools": "*"
+  }
+}
