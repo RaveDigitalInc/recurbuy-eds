@@ -1,10 +1,10 @@
 import {
-  addProductsToCart,
+  addProductsToCart as adobeAddProductsToCart,
   getCartData,
   createGuestCart,
   refreshCart,
-  updateProductsFromCart,
-} from '@dropins/storefront-cart/api.js';
+  updateProductsFromCart as adobeUpdateProductsFromCart,
+} from '@dropins/storefront-cart-impl/api.js';
 import { postPendingSubscriptionAdd } from './adapters/storefront-pending-add-adapter.js';
 import {
   findItemUid,
@@ -134,15 +134,17 @@ async function persistSubscriptionLine(cartId, itemUid, subscriptionOptionId, se
  * @param {Object} params.cartItem
  * @param {Object} [params.selection]
  * @param {number|string} [params.catalogProductId]
+ * @param {(items: Array<Object>) => Promise<unknown>} [params.addProductsToCart]
  * @returns {Promise<Object>}
  */
 export async function addToCartWithSubscription({
   cartItem,
   selection,
   catalogProductId,
+  addProductsToCart: addFn = adobeAddProductsToCart,
 }) {
   if (!isSubscriptionSelection(selection)) {
-    return addProductsToCart([cartItem]);
+    return addFn([cartItem]);
   }
 
   const cartId = await resolveCartId();
@@ -155,7 +157,7 @@ export async function addToCartWithSubscription({
     cartItem.parentSku,
   );
 
-  const addResult = await addProductsToCart([cartItem]);
+  const addResult = await addFn([cartItem]);
   let currentCart = addResult || (await getCartData());
   let itemUid = resolveAddedItemUid(cartBefore, currentCart, cartItem);
 
@@ -332,6 +334,7 @@ function quantityOnLine(cart, itemUid, fallback) {
  * @param {string} params.itemUid
  * @param {Object} [params.selection]
  * @param {number|string} [params.catalogProductId]
+ * @param {(items: Array<Object>) => Promise<unknown>} [params.updateProductsFromCart]
  * @returns {Promise<Object>}
  */
 export async function updateCartItemWithSubscription({
@@ -339,6 +342,7 @@ export async function updateCartItemWithSubscription({
   itemUid,
   selection,
   catalogProductId,
+  updateProductsFromCart: updateFn = adobeUpdateProductsFromCart,
 }) {
   const isSubscription = isSubscriptionSelection(selection);
   const cartId = isSubscription ? await resolveCartId() : null;
@@ -352,7 +356,7 @@ export async function updateCartItemWithSubscription({
     )
     : null;
 
-  const updateResult = await updateProductsFromCart([{
+  const updateResult = await updateFn([{
     ...cartItem,
     uid: itemUid,
     customFields: {},

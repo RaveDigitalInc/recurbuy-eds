@@ -269,7 +269,7 @@ function mergeQuoteDetailsWithSnapshot(quoteDetails, optimistic) {
  */
 async function resolveCommerceCartId() {
   try {
-    const cartApi = await import('@dropins/storefront-cart/api.js');
+    const cartApi = await import('@dropins/storefront-cart-impl/api.js');
     const cachedCart = cartApi.getCartDataFromCache?.();
     const cartId = cartApi.config?.cartId || cachedCart?.id;
     return typeof cartId === 'string' && cartId.trim() ? cartId.trim() : null;

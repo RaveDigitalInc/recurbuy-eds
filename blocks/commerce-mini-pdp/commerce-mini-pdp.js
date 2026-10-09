@@ -238,7 +238,7 @@ export default async function createMiniPDP(cartItem, onUpdate, onClose) {
             };
 
             const { updateProductsFromCart } = await import(
-              '@recurbuy/storefront-eds/extend/cart-api.js'
+              '@dropins/storefront-cart/api.js'
             );
             const updateResponse = await updateProductsFromCart([updateData]);
 

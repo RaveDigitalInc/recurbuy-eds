@@ -102,11 +102,12 @@ npm install @recurbuy/storefront-eds
 ```json
 /* local file: package (this repo) */
 "@recurbuy/storefront-eds/": "/packages/recurbuy-storefront/",
-"@recurbuy/storefront-eds": "/packages/recurbuy-storefront/src/index.js"
+"@recurbuy/storefront-eds": "/packages/recurbuy-storefront/src/index.js",
 
-/* after npm install — point import map at the served package root: */
-/* "@recurbuy/storefront-eds/": "/scripts/recurbuy-storefront/", */
-/* "@recurbuy/storefront-eds": "/scripts/recurbuy-storefront/src/index.js" */
+/* Cart API extension host: blocks keep @dropins/storefront-cart/api.js imports.
+   Adobe implementation is aliased so the facade can call it without recursion. */
+"@dropins/storefront-cart-impl/": "/scripts/__dropins__/storefront-cart/",
+"@dropins/storefront-cart/api.js": "/packages/recurbuy-storefront/extend/cart-api.js"
 ```
 
 (Adjust path if the package lives under `node_modules` and you vendor/copy sources for EDS static serving.)
@@ -170,14 +171,14 @@ const subscriptionController = mountProductDetailsSubscription({
   },
 });
 
-// Keep Adobe add/update control flow — only swap the cart API import:
-const { addProductsToCart } = await import(
-  '@recurbuy/storefront-eds/extend/cart-api.js'
-);
+// Keep the original Adobe import — do not replace with a vendor path:
+const { addProductsToCart } = await import('@dropins/storefront-cart/api.js');
 await addProductsToCart([{ ...values }]);
 ```
 
-`cart-api` wraps Adobe `addProductsToCart` / `updateProductsFromCart`: if the PDP selector saved a plan for the SKU, it runs pending-add + attrs; otherwise Adobe behaves as usual.
+Import map routes `@dropins/storefront-cart/api.js` through the package facade.
+Subscription AccS logic registers as middleware (`registerCartApiMiddleware`).
+Other vendors add their own middleware with a unique `id` — no block import changes.
 
 ### 6. Cart block (required)
 

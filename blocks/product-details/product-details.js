@@ -236,7 +236,7 @@ export default async function decorate(block) {
           if (isUpdateMode) {
             // --- Update existing item ---
             const { updateProductsFromCart } = await import(
-              '@recurbuy/storefront-eds/extend/cart-api.js'
+              '@dropins/storefront-cart/api.js'
             );
 
             await updateProductsFromCart([{ ...values, uid: itemUidFromUrl }]);
@@ -261,7 +261,7 @@ export default async function decorate(block) {
           }
           // --- Add new item ---
           const { addProductsToCart } = await import(
-            '@recurbuy/storefront-eds/extend/cart-api.js'
+            '@dropins/storefront-cart/api.js'
           );
           await addProductsToCart([{ ...values }]);
         }

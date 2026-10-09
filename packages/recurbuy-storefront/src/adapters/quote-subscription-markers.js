@@ -1,4 +1,4 @@
-import { fetchGraphQl } from '@dropins/storefront-cart/api.js';
+import { fetchGraphQl } from '@dropins/storefront-cart-impl/api.js';
 import {
   RECURBUY_BILLING_PERIOD,
   RECURBUY_ENDS_LABEL,

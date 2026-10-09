@@ -74,3 +74,4 @@ export {
 export { createCartSubscriptionSession } from './extend/cart.js';
 export { createCartModelCustomAttributesTransformer } from './extend/initializer.js';
 export { appendCartProductAttributesSlot } from './helpers/cart-product-attributes-slot.js';
+export { registerCartApiMiddleware } from './extend/cart-api-middleware.js';

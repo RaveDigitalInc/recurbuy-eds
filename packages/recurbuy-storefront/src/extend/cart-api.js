@@ -1,15 +1,13 @@
 /**
- * Drop-in cart API surface with RecurBuy AccS subscription handling.
+ * Extended `@dropins/storefront-cart/api.js` surface.
  *
- * Merchant blocks keep the original Adobe control flow:
- *   const { addProductsToCart } = await import('@recurbuy/storefront-eds/extend/cart-api.js');
- *   await addProductsToCart([{ ...values }]);
+ * Merchant blocks keep:
+ *   import { addProductsToCart } from '@dropins/storefront-cart/api.js';
  *
- * When the PDP selector stored a plan for the SKU, pending-add + attrs run
- * automatically. One-time purchases pass through to Adobe unchanged.
+ * Import map points that specifier here. Vendors register middleware via
+ * `registerCartApiMiddleware` instead of changing block imports.
  */
 
-import { events } from '@dropins/tools/event-bus.js';
 import {
   addProductsToCart as adobeAddProductsToCart,
   updateProductsFromCart as adobeUpdateProductsFromCart,
@@ -40,12 +38,13 @@ import {
   setFetchGraphQlHeader,
   setFetchGraphQlHeaders,
   setGiftOptionsOnCart,
-} from '@dropins/storefront-cart/api.js';
-import { getSelectionForCartItem } from '../selection-store.js';
+} from '@dropins/storefront-cart-impl/api.js';
 import {
-  addToCartWithSubscription,
-  updateCartItemWithSubscription,
-} from '../subscription-add-to-cart.js';
+  composeCartApiHandlers,
+  getCartApiMiddlewares,
+  registerCartApiMiddleware,
+} from './cart-api-middleware.js';
+import { createSubscriptionCartMiddleware } from './subscription-cart-middleware.js';
 
 export {
   ApplyCouponsStrategy,
@@ -75,63 +74,29 @@ export {
   setFetchGraphQlHeader,
   setFetchGraphQlHeaders,
   setGiftOptionsOnCart,
+  registerCartApiMiddleware,
 };
 
-/**
- * @returns {number|string|undefined}
- */
-function catalogProductIdFromPdp() {
-  const product = events.lastPayload('pdp/data')
-    ?? events.lastPayload('pdp/data', { scope: 'modal' })
-    ?? null;
-  return product?.externalId || product?.id;
-}
-
-/**
- * @param {{ sku?: string, parentSku?: string, uid?: string }} item
- */
-function selectionForCartItem(item) {
-  return getSelectionForCartItem({
-    sku: item?.sku,
-    topLevelSku: item?.parentSku,
-    uid: item?.uid,
-  }) || { purchaseType: 'one_time' };
-}
+registerCartApiMiddleware(createSubscriptionCartMiddleware());
 
 /**
  * @param {Array<Record<string, unknown>>} items
  */
 export async function addProductsToCart(items) {
-  if (!Array.isArray(items) || items.length !== 1) {
-    return adobeAddProductsToCart(items);
-  }
-
-  const cartItem = items[0];
-  return addToCartWithSubscription({
-    cartItem,
-    selection: selectionForCartItem(cartItem),
-    catalogProductId: catalogProductIdFromPdp(),
-  });
+  const run = composeCartApiHandlers(
+    getCartApiMiddlewares().map((middleware) => middleware.addProductsToCart),
+    adobeAddProductsToCart,
+  );
+  return run(items);
 }
 
 /**
  * @param {Array<Record<string, unknown>>} items
  */
 export async function updateProductsFromCart(items) {
-  if (!Array.isArray(items) || items.length !== 1) {
-    return adobeUpdateProductsFromCart(items);
-  }
-
-  const cartItem = items[0];
-  const itemUid = cartItem?.uid;
-  if (!itemUid) {
-    return adobeUpdateProductsFromCart(items);
-  }
-
-  return updateCartItemWithSubscription({
-    cartItem,
-    itemUid,
-    selection: selectionForCartItem(cartItem),
-    catalogProductId: catalogProductIdFromPdp(),
-  });
+  const run = composeCartApiHandlers(
+    getCartApiMiddlewares().map((middleware) => middleware.updateProductsFromCart),
+    adobeUpdateProductsFromCart,
+  );
+  return run(items);
 }
