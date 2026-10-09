@@ -60,7 +60,6 @@ export default async function decorate(block) {
   let currentNotification = null;
   let orderSummary = null;
 
-  // RecurBuy: subscription line details / summary only.
   const subscriptions = createCartSubscriptionSession({
     getCartItems: () => Cart.getCartDataFromCache()?.items || [],
     labels: {

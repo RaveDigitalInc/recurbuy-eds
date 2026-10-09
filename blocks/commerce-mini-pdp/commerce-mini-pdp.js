@@ -17,8 +17,7 @@ import ProductPrice from '@dropins/storefront-pdp/containers/ProductPrice.js';
 import ProductOptions from '@dropins/storefront-pdp/containers/ProductOptions.js';
 import ProductQuantity from '@dropins/storefront-pdp/containers/ProductQuantity.js';
 import {
-  createCartActionValidityBridge,
-  mountProductDetailsSubscription,
+  attachPdpSubscription,
   resolveCartItemInitialSelection,
 } from '@recurbuy/storefront-eds/extend/product-details.js';
 
@@ -160,23 +159,14 @@ export default async function createMiniPDP(cartItem, onUpdate, onClose) {
     // State management
     let isLoading = false;
     let inlineAlert = null;
-    /** @type {{ setProps: Function }|null} */
-    let updateButtonRef = null;
-    /** @type {ReturnType<typeof mountProductDetailsSubscription>|null} */
-    let subscriptionController = null;
-    const cartActionValidity = createCartActionValidityBridge({
-      getButton: () => updateButtonRef,
-      getSubscriptionController: () => subscriptionController,
-      getLoading: () => isLoading,
-    });
 
-    subscriptionController = mountProductDetailsSubscription({
+    const pdpSubscription = attachPdpSubscription({
       selectorRoot: $subscription,
       priceRoot: $subscriptionPrice,
       productPriceRoot: $price,
       scope: 'modal',
       initialSelection: resolveCartItemInitialSelection(cartItem),
-      onChange: cartActionValidity.onSubscriptionChange,
+      getLoading: () => isLoading,
     });
 
     // Render components
@@ -230,13 +220,13 @@ export default async function createMiniPDP(cartItem, onUpdate, onClose) {
             // Get current product configuration
             const values = pdpApi.getProductConfigurationValues({ scope: 'modal' });
             const valid = pdpApi.isProductConfigurationValid({ scope: 'modal' })
-              && subscriptionController.isSelectionValid();
+              && pdpSubscription.isSelectionValid();
 
             if (!valid) {
               throw new Error('Please select all required options');
             }
 
-            // Update cart item with new configuration (RecurBuy cart-api wrap).
+            // Update cart item with new configuration
             const updateData = {
               uid: cartItem.uid,
               quantity: values.quantity || cartItem.quantity,
@@ -286,7 +276,7 @@ export default async function createMiniPDP(cartItem, onUpdate, onClose) {
               ...prev,
               children: placeholders?.Global?.UpdateProductInCart,
             }));
-            cartActionValidity.sync();
+            pdpSubscription.sync();
           }
         },
         disabled: isLoading,
@@ -313,13 +303,12 @@ export default async function createMiniPDP(cartItem, onUpdate, onClose) {
       })($redirectButton),
     ]);
 
-    updateButtonRef = updateButton;
-    cartActionValidity.sync();
+    pdpSubscription.bindCartButton(updateButton);
 
     // Handle PDP validation events
     events.on(
       'pdp/valid',
-      cartActionValidity.onProductValid,
+      pdpSubscription.onProductValid,
       { eager: true, scope: 'modal' },
     );
 

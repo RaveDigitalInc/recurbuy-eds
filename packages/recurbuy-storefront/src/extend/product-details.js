@@ -40,8 +40,50 @@ export function mountProductDetailsSubscription(options) {
 }
 
 /**
+ * One call for merchant PDP / mini-PDP: mount UI + keep cart button validity in sync.
+ *
+ * @param {ProductDetailsSubscriptionRoots & {
+ *   scope?: string,
+ *   initialSelection?: import('../contract.js').SubscriptionSelection,
+ *   getLoading?: () => boolean,
+ * }} options
+ */
+export function attachPdpSubscription(options) {
+  const { getLoading, ...mountOptions } = options;
+
+  /** @type {{ setProps: Function }|null} */
+  let buttonRef = null;
+  /** @type {ReturnType<typeof mountSubscriptionOnPdp>|null} */
+  let controller = null;
+
+  const validity = createCartActionValidityBridge({
+    getButton: () => buttonRef,
+    getSubscriptionController: () => controller,
+    getLoading: getLoading || (() => false),
+  });
+
+  controller = mountProductDetailsSubscription({
+    ...mountOptions,
+    onChange: validity.onSubscriptionChange,
+  });
+
+  return {
+    getSelection: () => controller.getSelection(),
+    isSelectionValid: () => controller.isSelectionValid(),
+    onProductValid: validity.onProductValid,
+    sync: validity.sync,
+    /**
+     * @param {{ setProps: Function }|null|undefined} button
+     */
+    bindCartButton(button) {
+      buttonRef = button || null;
+      validity.sync();
+    },
+  };
+}
+
+/**
  * Disable Add/Update cart button when PDP config or subscription selection is invalid.
- * Lives in the package so merchant blocks only call it — no RecurBuy helpers in core.
  *
  * @param {{ setProps: Function }|null|undefined} button
  * @param {{
@@ -206,7 +248,10 @@ export async function submitProductDetailsCart(input) {
  *   mode: 'add'|'update',
  *   itemUid?: string|null,
  * }} input
- * @returns {Promise<{ submitted: boolean, result?: Awaited<ReturnType<typeof submitProductDetailsCart>> }>}
+ * @returns {Promise<{
+ *   submitted: boolean,
+ *   result?: Awaited<ReturnType<typeof submitProductDetailsCart>>,
+ * }>}
  */
 export async function submitProductDetailsCartIfValid(input) {
   const {

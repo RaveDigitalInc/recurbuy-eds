@@ -23,10 +23,7 @@ import ProductQuantity from '@dropins/storefront-pdp/containers/ProductQuantity.
 import ProductDescription from '@dropins/storefront-pdp/containers/ProductDescription.js';
 import ProductAttributes from '@dropins/storefront-pdp/containers/ProductAttributes.js';
 import ProductGallery from '@dropins/storefront-pdp/containers/ProductGallery.js';
-import {
-  createCartActionValidityBridge,
-  mountProductDetailsSubscription,
-} from '@recurbuy/storefront-eds/extend/product-details.js';
+import { attachPdpSubscription } from '@recurbuy/storefront-eds/extend/product-details.js';
 
 // Libs
 import {
@@ -111,20 +108,11 @@ export default async function decorate(block) {
 
   block.replaceChildren(fragment);
 
-  /** @type {{ setProps: Function }|null} */
-  let addToCartRef = null;
-  /** @type {ReturnType<typeof mountProductDetailsSubscription>|null} */
-  let subscriptionController = null;
-  const cartActionValidity = createCartActionValidityBridge({
-    getButton: () => addToCartRef,
-    getSubscriptionController: () => subscriptionController,
-  });
-  subscriptionController = mountProductDetailsSubscription({
+  const pdpSubscription = attachPdpSubscription({
     selectorRoot: $subscription,
     priceRoot: $subscriptionPrice,
     productPriceRoot: $price,
     detailsRoot: $subscriptionDetails,
-    onChange: cartActionValidity.onSubscriptionChange,
   });
 
   const gallerySlots = {
@@ -241,10 +229,9 @@ export default async function decorate(block) {
         // get the current selection values
         const values = pdpApi.getProductConfigurationValues();
         const valid = pdpApi.isProductConfigurationValid()
-          && subscriptionController.isSelectionValid();
+          && pdpSubscription.isSelectionValid();
 
         // add or update the product in the cart
-        // Cart API: RecurBuy wrap of Adobe drop-in (same call shape; AccS when plan selected).
         if (valid) {
           if (isUpdateMode) {
             // --- Update existing item ---
@@ -302,16 +289,15 @@ export default async function decorate(block) {
       } finally {
         // Reset button text using the helper function which respects the current mode
         updateAddToCartButtonText(addToCart, isUpdateMode, labels);
-        cartActionValidity.sync();
+        pdpSubscription.sync();
       }
     },
   })($addToCart);
 
-  addToCartRef = addToCart;
-  cartActionValidity.sync();
+  pdpSubscription.bindCartButton(addToCart);
 
   // Lifecycle Events
-  events.on('pdp/valid', cartActionValidity.onProductValid, { eager: true });
+  events.on('pdp/valid', pdpSubscription.onProductValid, { eager: true });
 
   // Handle option changes
   events.on('pdp/values', () => {
