@@ -135,9 +135,6 @@ export const CartPayloadAdapter = {
     };
 
     saveSelectionForSku(sku, enrichedSelection);
-    if (parentSku && parentSku !== sku) {
-      saveSelectionForSku(parentSku, enrichedSelection);
-    }
 
     return base;
   },

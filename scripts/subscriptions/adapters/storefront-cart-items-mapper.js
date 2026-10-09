@@ -39,13 +39,21 @@ export function matchStorefrontCartItemFlagsRow(item, rows) {
 
   if (!sku && !topLevelSku) return null;
 
-  const skuMatches = rows.filter((row) => {
+  const exact = rows.filter((row) => {
     const rowSku = typeof row.sku === 'string' ? row.sku.trim() : '';
-    if (!rowSku) return false;
-    return rowSku === sku || (topLevelSku && rowSku === topLevelSku);
+    return rowSku !== '' && sku !== '' && rowSku === sku;
+  });
+  if (exact.length === 1) return exact[0];
+
+  // Several variants share the parent SKU. A parent row is not this child's plan.
+  if (sku && topLevelSku && sku !== topLevelSku) return null;
+
+  const parentMatches = rows.filter((row) => {
+    const rowSku = typeof row.sku === 'string' ? row.sku.trim() : '';
+    return rowSku !== '' && topLevelSku !== '' && rowSku === topLevelSku;
   });
 
-  return skuMatches[0] || null;
+  return parentMatches.length === 1 ? parentMatches[0] : null;
 }
 
 /**
@@ -82,15 +90,23 @@ export function mergeCartSubscriptionDetailsWithFlags(
     return fromFlags;
   }
 
+  const samePlan = !snapshotDetails.planId
+    || !fromFlags.planId
+    || String(snapshotDetails.planId) === String(fromFlags.planId);
+
   return {
     ...snapshotDetails,
     planId: snapshotDetails.planId || fromFlags.planId,
     subscriptionOptionId: snapshotDetails.subscriptionOptionId || fromFlags.subscriptionOptionId,
-    planLabel: preferPlanLabel(snapshotDetails.planLabel, fromFlags.planLabel),
-    period: hasPeriod ? fromFlags.period : (snapshotDetails.period || fromFlags.period),
-    price: hasPrice ? fromFlags.price : (snapshotDetails.price || fromFlags.price),
+    planLabel: samePlan
+      ? preferPlanLabel(snapshotDetails.planLabel, fromFlags.planLabel)
+      : (snapshotDetails.planLabel || fromFlags.planLabel),
+    period: samePlan && hasPeriod ? fromFlags.period : (snapshotDetails.period || fromFlags.period),
+    price: samePlan && hasPrice ? fromFlags.price : (snapshotDetails.price || fromFlags.price),
     startDate: snapshotDetails.startDate || fromFlags.startDate,
-    endsLabel: fromFlags.endsLabel || snapshotDetails.endsLabel,
+    endsLabel: samePlan
+      ? (fromFlags.endsLabel || snapshotDetails.endsLabel)
+      : (snapshotDetails.endsLabel || fromFlags.endsLabel),
   };
 }
 

@@ -1,6 +1,7 @@
 /**
  * Client-side subscription selection store.
- * Used until Commerce cart GraphQL returns subscription fields.
+ * Used when Commerce cart GraphQL has not yet returned line custom attributes
+ * (see cart-line-custom-attributes.js) or for plan snapshots before refresh.
  */
 
 const STORAGE_KEY = 'recurbuy.subscription.selections';
@@ -97,6 +98,15 @@ export function linkSelectionUid(sku, uid) {
   const store = readStore();
   const selection = store.bySku[sku];
   if (!selection || selection.purchaseType !== 'subscription') return;
+  const existing = store.byUid[uid];
+  if (
+    existing
+    && existing.purchaseType === 'subscription'
+    && existing.planId
+    && String(existing.planId) !== String(selection.planId)
+  ) {
+    return;
+  }
   store.byUid[uid] = { ...selection };
   writeStore(store);
 }
@@ -121,7 +131,13 @@ export function getSelectionForCartItem(item) {
     return store.bySku[item.sku];
   }
 
-  if (item.topLevelSku && store.bySku[item.topLevelSku]) {
+  // Configurable children share one parent SKU. That snapshot is whichever
+  // variant was added last, so it must not paint the other lines.
+  if (
+    item.topLevelSku
+    && (!item.sku || item.sku === item.topLevelSku)
+    && store.bySku[item.topLevelSku]
+  ) {
     return store.bySku[item.topLevelSku];
   }
 

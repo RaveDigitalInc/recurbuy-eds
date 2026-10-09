@@ -74,9 +74,12 @@
 
 .cart-mini-cart .cart-subscription-details__disclosure::details-content {
   height: 0;
-  overflow: hidden;
+  overflow: clip;
   opacity: 0;
-  transition: height 220ms ease, opacity 220ms ease;
+  transition:
+    height 220ms ease,
+    opacity 220ms ease,
+    content-visibility 220ms allow-discrete;
 }
 
 .cart-mini-cart .cart-subscription-details__disclosure[open]::details-content {

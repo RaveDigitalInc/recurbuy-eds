@@ -59,7 +59,7 @@
  * @property {string} sku
  * @property {string} [subscriptionOptionId]
  * @property {'edit_item'} [context]
- * @property {{ externalId?: string }} [product]
+ * @property {{ externalId?: string, selectedChildExternalId?: string }} [product]
  */
 
 /**
@@ -73,7 +73,12 @@
  * @property {SubscriptionPlan[]} plans
  * @property {SubscriptionCustomOption[]} [customOptions]
  * @property {string} [ineligibilityReason]
+ * @property {'radiobutton'|'dropdown'} [renderer]
  * @property {{ text?: string, tooltip?: string, isVisible?: boolean }} [subscribeAndSave]
+ * @property {string} [productType] Magento catalog type (`bundle`, `configurable`, …)
+ * @property {Record<string, { trialPercent?: number, regularPercent?: number }>} [optionPlanData]
+ * @property {boolean} [isUsedAdvancedPricing]
+ * @property {string} [currency]
  */
 
 /**

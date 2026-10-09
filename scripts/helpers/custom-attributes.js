@@ -1,5 +1,31 @@
+function appendAttributeRow(list, label, value, extraClass) {
+  const row = document.createElement('div');
+  row.className = extraClass
+    ? `custom-attrs__row ${extraClass}`
+    : 'custom-attrs__row';
+
+  const term = document.createElement('dt');
+  term.className = 'custom-attrs__label';
+  term.textContent = `${label}:`;
+
+  const detail = document.createElement('dd');
+  detail.className = 'custom-attrs__value';
+  detail.textContent = value;
+
+  row.append(term, detail);
+  list.appendChild(row);
+}
+
+function cartAttributeValue(attr) {
+  if (attr?.value) return String(attr.value);
+  if (attr?.selected_options?.length) {
+    return attr.selected_options.map((option) => option.label).filter(Boolean).join(', ');
+  }
+  return '';
+}
+
 /**
-* Renders a list of attributes into a container.
+ * Renders a list of attributes into a container.
  * @param {HTMLElement} container - Render container
  * @param {Array} attributes - Array of attributes [{ label/code, value, selected_options }]
  * @param {'pdp'|'cart'} format - Data format
@@ -7,56 +33,27 @@
  */
 export function renderCustomAttributes(container, attributes = [], format = 'pdp', options = {}) {
   container.className = `custom-attrs custom-attrs--${format}`;
-  container.innerHTML = '';
+  container.replaceChildren();
 
   const list = document.createElement('dl');
   list.className = 'custom-attrs__list';
 
   if (options.sku) {
-    const skuRow = document.createElement('div');
-    skuRow.className = 'custom-attrs__row custom-attrs__row--sku';
-    skuRow.innerHTML = `
-      <dt class="custom-attrs__label">SKU:</dt>
-      <dd class="custom-attrs__value">${options.sku}</dd>
-    `;
-    list.appendChild(skuRow);
+    appendAttributeRow(list, 'SKU', String(options.sku), 'custom-attrs__row--sku');
   }
 
-  if (Array.isArray(attributes) && attributes.length > 0) {
+  if (Array.isArray(attributes)) {
     attributes.forEach((attr) => {
-      const row = document.createElement('div');
-      row.className = 'custom-attrs__row';
-
       if (format === 'pdp') {
-        const label = attr.label || attr.code || '';
-        const value = attr.value || '';
-        if (value) {
-          row.innerHTML = `
-            <dt class="custom-attrs__label">${label}:</dt>
-            <dd class="custom-attrs__value">${value}</dd>
-          `;
-          list.appendChild(row);
-        }
+        const label = attr?.label || attr?.code || '';
+        const value = attr?.value ? String(attr.value) : '';
+        if (label && value) appendAttributeRow(list, label, value);
+        return;
       }
 
-      if (format === 'cart') {
-        const code = attr.code || attr.label || '';
-        let displayValue = '';
-
-        if (attr.value) {
-          displayValue = attr.value;
-        } else if (attr.selected_options?.length) {
-          displayValue = attr.selected_options.map((o) => o.label).join(', ');
-        }
-
-        if (displayValue) {
-          row.innerHTML = `
-            <dt class="custom-attrs__label">${code}:</dt>
-            <dd class="custom-attrs__value">${displayValue}</dd>
-          `;
-          list.appendChild(row);
-        }
-      }
+      const label = attr?.code || attr?.label || '';
+      const value = cartAttributeValue(attr);
+      if (label && value) appendAttributeRow(list, label, value);
     });
   }
 

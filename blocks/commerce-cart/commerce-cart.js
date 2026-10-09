@@ -10,14 +10,11 @@ import {
 } from '@dropins/tools/components.js';
 
 // Dropin Containers
-import CartSummaryList from '@dropins/storefront-cart/containers/CartSummaryList.js';
+import CartSummaryTable from '@dropins/storefront-cart/containers/CartSummaryTable.js';
 import OrderSummary from '@dropins/storefront-cart/containers/OrderSummary.js';
 import EstimateShipping from '@dropins/storefront-cart/containers/EstimateShipping.js';
 import Coupons from '@dropins/storefront-cart/containers/Coupons.js';
-import GiftCards from '@dropins/storefront-cart/containers/GiftCards.js';
-import GiftOptions from '@dropins/storefront-cart/containers/GiftOptions.js';
 import { render as wishlistRender } from '@dropins/storefront-wishlist/render.js';
-import { WishlistToggle } from '@dropins/storefront-wishlist/containers/WishlistToggle.js';
 import { WishlistAlert } from '@dropins/storefront-wishlist/containers/WishlistAlert.js';
 import { tryRenderAemAssetsImage } from '@dropins/tools/lib/aem/assets.js';
 
@@ -31,13 +28,15 @@ import createMiniPDP from '../commerce-mini-pdp/commerce-mini-pdp.js';
 // Initializers
 import '../../scripts/initializers/cart.js';
 import '../../scripts/initializers/wishlist.js';
-import { renderCustomAttributes } from '../../scripts/helpers/custom-attributes.js';
+import { appendCartProductAttributesSlot } from '../../scripts/helpers/cart-product-attributes-slot.js';
 import {
   applySubscriptionLinePrices,
   clearCartSubscriptionDetails,
   fetchCartItemSubscriptionDetails,
   renderCartSubscriptionDetails,
   syncCartSubscriptionDetails,
+  createSubscriptionSummaryUpdater,
+  fetchCheckoutConfig,
 } from '../../scripts/subscriptions/index.js';
 
 import { readBlockConfig } from '../../scripts/aem.js';
@@ -47,8 +46,6 @@ export default async function decorate(block) {
   // Configuration
   const {
     'hide-heading': hideHeading = 'false',
-    'max-items': maxItems,
-    'hide-attributes': hideAttributes = '',
     'enable-item-quantity-update': enableUpdateItemQuantity = 'false',
     'enable-item-remove': enableRemoveItem = 'true',
     'enable-estimate-shipping': enableEstimateShipping = 'false',
@@ -69,17 +66,28 @@ export default async function decorate(block) {
   const subscriptionPriceSlotsByUid = new Map();
   const subscriptionTotalSlotsByUid = new Map();
   const subscriptionRootsByUid = new Map();
+  /** Mixed-cart flags and totals copy from RecurBuy `checkout/config` */
+  let checkoutConfig = null;
+  let checkoutConfigCartId = null;
+  let orderSummary = null;
 
   // Layout
   const fragment = document.createRange().createContextualFragment(`
     <div class="cart__notification"></div>
     <div class="cart__wrapper">
       <div class="cart__left-column">
+        <h1 class="cart__heading">Shopping Cart</h1>
         <div class="cart__list"></div>
+        <div class="cart__update"></div>
+        <div class="cart__discount"></div>
       </div>
       <div class="cart__right-column">
+        <h2 class="cart__summary-title">Summary</h2>
+        <details class="cart__estimate">
+          <summary class="cart__estimate-toggle">Estimate Shipping and Tax</summary>
+          <div class="cart__estimate-body"></div>
+        </details>
         <div class="cart__order-summary"></div>
-        <div class="cart__gift-options"></div>
       </div>
     </div>
 
@@ -88,10 +96,14 @@ export default async function decorate(block) {
 
   const $wrapper = fragment.querySelector('.cart__wrapper');
   const $notification = fragment.querySelector('.cart__notification');
+  const $heading = fragment.querySelector('.cart__heading');
   const $list = fragment.querySelector('.cart__list');
+  const $update = fragment.querySelector('.cart__update');
+  const $discount = fragment.querySelector('.cart__discount');
   const $summary = fragment.querySelector('.cart__order-summary');
+  const $estimate = fragment.querySelector('.cart__estimate');
+  const $estimateBody = fragment.querySelector('.cart__estimate-body');
   const $emptyCart = fragment.querySelector('.cart__empty-cart');
-  const $giftOptions = fragment.querySelector('.cart__gift-options');
   const $rightColumn = fragment.querySelector('.cart__right-column');
 
   block.innerHTML = '';
@@ -171,6 +183,29 @@ export default async function decorate(block) {
     }
   }
 
+  const summaryLabels = {
+    payNow: placeholders?.Global?.YouPayNow,
+    chargedFor: placeholders?.Global?.YouWillBeChargedFor,
+  };
+
+  // Shipping and the tax row stay inside the collapsed estimate block.
+  // The order total reuses the key `taxContent` at sortOrder 900, so only the
+  // earlier tax row is removed.
+
+  const buildSummaryUpdater = () => {
+    const withSubscription = createSubscriptionSummaryUpdater({
+      getItems: () => Cart.getCartDataFromCache()?.items || [],
+      getDetailsByUid: () => subscriptionDetailsByUid,
+      getConfig: () => checkoutConfig,
+      labels: summaryLabels,
+      showChargedFor: false,
+    });
+    return (lineItems) => withSubscription(lineItems).filter((line) => (
+      line.key !== 'shippingContent'
+      && !(line.key === 'taxContent' && line.sortOrder < 900)
+    ));
+  };
+
   const applySubscriptionPrices = (uid, details, item) => {
     applySubscriptionLinePrices(
       subscriptionPriceSlotsByUid,
@@ -184,18 +219,14 @@ export default async function decorate(block) {
   // Render Containers
   const getProductLink = (product) => rootLink(`/products/${product.url.urlKey}/${product.topLevelSku}`);
 
-  await Promise.all([
-    // Cart List
-    provider.render(CartSummaryList, {
-      hideHeading: hideHeading === 'true',
+  if (hideHeading === 'true') $heading.hidden = true;
+
+  [, orderSummary] = await Promise.all([
+    provider.render(CartSummaryTable, {
       routeProduct: getProductLink,
       routeEmptyCartCTA: startShoppingURL ? () => rootLink(startShoppingURL) : undefined,
-      maxItems: parseInt(maxItems, 10) || undefined,
-      attributesToHide: hideAttributes
-        .split(',')
-        .map((attr) => attr.trim().toLowerCase()),
-      enableUpdateItemQuantity: enableUpdateItemQuantity === 'true',
-      enableRemoveItem: enableRemoveItem === 'true',
+      allowQuantityUpdates: enableUpdateItemQuantity === 'true',
+      allowRemoveItems: enableRemoveItem === 'true',
       undo: undo === 'true',
       slots: {
         Thumbnail: (ctx) => {
@@ -214,7 +245,7 @@ export default async function decorate(block) {
           });
         },
 
-        ItemPrice: (ctx) => {
+        Price: (ctx) => {
           const { item } = ctx;
           const uid = item?.uid;
           if (!uid) return;
@@ -223,7 +254,7 @@ export default async function decorate(block) {
           applySubscriptionPrices(uid, subscriptionDetailsByUid.get(uid), item);
         },
 
-        ItemTotal: (ctx) => {
+        Subtotal: (ctx) => {
           const { item } = ctx;
           const uid = item?.uid;
           if (!uid) return;
@@ -232,18 +263,12 @@ export default async function decorate(block) {
           applySubscriptionPrices(uid, subscriptionDetailsByUid.get(uid), item);
         },
 
-        ProductAttributes: (ctx) => {
+        Configurations: (ctx) => {
           const { item } = ctx;
           const uid = item?.uid;
+          if (ctx.querySelector?.('.cart-subscription-details')) return;
 
-          const attributesWrapper = document.createElement('div');
-          renderCustomAttributes(
-            attributesWrapper,
-            item?.productAttributes ?? [],
-            'cart',
-            { sku: item?.sku },
-          );
-          ctx.appendChild(attributesWrapper);
+          appendCartProductAttributesSlot(ctx, item, { format: 'cart' });
 
           const subscriptionRoot = document.createElement('div');
           subscriptionRoot.className = 'cart-subscription-details';
@@ -266,89 +291,61 @@ export default async function decorate(block) {
           }
         },
 
-        Footer: (ctx) => {
-          if (ctx.item?.itemType === 'ConfigurableCartItem' && enableUpdatingProduct === 'true') {
-            const editLink = document.createElement('div');
-            editLink.className = 'cart-item-edit-link';
+        Actions: (ctx) => {
+          if (enableUpdatingProduct !== 'true') return;
 
-            UI.render(Button, {
-              children: placeholders?.Global?.CartEditButton,
-              variant: 'tertiary',
-              size: 'medium',
-              icon: h(Icon, { source: 'Edit' }),
-              onClick: () => handleEditButtonClick(ctx.item),
-            })(editLink);
-
-            ctx.appendChild(editLink);
-          }
-
-          const $wishlistToggle = document.createElement('div');
-          $wishlistToggle.classList.add('cart__action--wishlist-toggle');
-
-          wishlistRender.render(WishlistToggle, {
-            product: ctx.item,
+          const editLink = document.createElement('div');
+          editLink.className = 'cart-item-edit-link';
+          UI.render(Button, {
+            variant: 'tertiary',
             size: 'medium',
-            labelToWishlist: placeholders?.Global?.CartMoveToWishlist,
-            labelWishlisted: placeholders?.Global?.CartRemoveFromWishlist,
-            removeProdFromCart: Cart.updateProductsFromCart,
-          })($wishlistToggle);
-
-          ctx.appendChild($wishlistToggle);
-
-          const giftOptions = document.createElement('div');
-
-          provider.render(GiftOptions, {
-            item: ctx.item,
-            view: 'product',
-            dataSource: 'cart',
-            handleItemsLoading: ctx.handleItemsLoading,
-            handleItemsError: ctx.handleItemsError,
-            onItemUpdate: ctx.onItemUpdate,
-            slots: {
-              SwatchImage: swatchImageSlot,
-            },
-          })(giftOptions);
-
-          ctx.appendChild(giftOptions);
+            icon: h(Icon, { source: 'Edit' }),
+            'aria-label': placeholders?.Global?.CartEditButton || 'Edit item',
+            onClick: () => handleEditButtonClick(ctx.item),
+          })(editLink);
+          ctx.appendChild(editLink);
         },
       },
     })($list),
 
-    // Order Summary
     provider.render(OrderSummary, {
-      routeProduct: getProductLink,
+      updateLineItems: buildSummaryUpdater(),
       routeCheckout: checkoutURL ? () => rootLink(checkoutURL) : undefined,
-      slots: {
-        EstimateShipping: async (ctx) => {
-          if (enableEstimateShipping === 'true') {
-            const wrapper = document.createElement('div');
-            await provider.render(EstimateShipping, {})(wrapper);
-            ctx.replaceWith(wrapper);
-          }
-        },
-        Coupons: (ctx) => {
-          const coupons = document.createElement('div');
-          provider.render(Coupons)(coupons);
-          ctx.appendChild(coupons);
-        },
-        GiftCards: (ctx) => {
-          const giftCards = document.createElement('div');
-          provider.render(GiftCards)(giftCards);
-          ctx.appendChild(giftCards);
-        },
-      },
     })($summary),
 
-    provider.render(GiftOptions, {
-      view: 'order',
-      dataSource: 'cart',
-      slots: {
-        SwatchImage: swatchImageSlot,
-      },
-    })($giftOptions),
+    UI.render(Button, {
+      children: placeholders?.Global?.UpdateShoppingCart || 'Update Shopping Cart',
+      variant: 'secondary',
+      onClick: () => updateShoppingCart($list),
+    })($update),
+
+    provider.render(Coupons)($discount),
+
+    enableEstimateShipping === 'true'
+      ? provider.render(EstimateShipping, {})($estimateBody)
+      : Promise.resolve(),
   ]);
 
+  if (enableEstimateShipping !== 'true') $estimate.hidden = true;
+
   let cartViewEventPublished = false;
+
+  // New callback identity makes the drop-in re-run `updateLineItems`.
+  const refreshOrderSummary = () => {
+    orderSummary?.setProps((prev) => ({
+      ...prev,
+      updateLineItems: buildSummaryUpdater(),
+    }));
+    window.requestAnimationFrame(() => polishSummary($summary, placeholders));
+  };
+
+  const refreshCheckoutConfig = async (cartData) => {
+    const cartId = cartData?.id;
+    if (!cartId || cartId === checkoutConfigCartId) return;
+    checkoutConfigCartId = cartId;
+    checkoutConfig = await fetchCheckoutConfig(cartId);
+    refreshOrderSummary();
+  };
 
   const refreshSubscriptionDetails = async (items) => {
     try {
@@ -356,13 +353,15 @@ export default async function decorate(block) {
       subscriptionDetailsByUid.clear();
       next.forEach((details, uid) => {
         subscriptionDetailsByUid.set(uid, details);
-        applySubscriptionPrices(uid, details);
+        const item = (items || []).find((entry) => entry?.uid === uid);
+        applySubscriptionPrices(uid, details, item);
         const root = subscriptionRootsByUid.get(uid);
         if (root) renderCartSubscriptionDetails(root, details);
       });
       subscriptionRootsByUid.forEach((root, uid) => {
         if (!next.has(uid)) clearCartSubscriptionDetails(root);
       });
+      refreshOrderSummary();
     } catch (error) {
       console.error('Error syncing cart subscription details:', error);
     }
@@ -375,8 +374,11 @@ export default async function decorate(block) {
       toggleEmptyCart(isCartEmpty(cartData));
 
       const isEmpty = !cartData || cartData.totalQuantity < 1;
-      $giftOptions.style.display = isEmpty ? 'none' : '';
-      $rightColumn.style.display = isEmpty ? 'none' : '';
+      $rightColumn.hidden = isEmpty;
+      $update.hidden = isEmpty;
+      $discount.hidden = isEmpty;
+      $heading.hidden = isEmpty || hideHeading === 'true';
+      polishSummary($summary, placeholders);
 
       if (!cartViewEventPublished) {
         cartViewEventPublished = true;
@@ -384,20 +386,10 @@ export default async function decorate(block) {
       }
 
       refreshSubscriptionDetails(cartData?.items);
+      refreshCheckoutConfig(cartData);
     },
     { eager: true },
   );
-
-  events.on('cart/product-added', (addedItems) => {
-    let list = [];
-    if (Array.isArray(addedItems)) {
-      list = addedItems;
-    } else if (addedItems) {
-      list = [addedItems];
-    }
-    const cartItems = Cart.getCartDataFromCache()?.items || [];
-    refreshSubscriptionDetails([...cartItems, ...list]);
-  });
 
   events.on('wishlist/alert', ({ action, item }) => {
     wishlistRender.render(WishlistAlert, {
@@ -418,15 +410,52 @@ function isCartEmpty(cart) {
   return cart ? cart.totalQuantity < 1 : true;
 }
 
-function swatchImageSlot(ctx) {
-  const { imageSwatchContext, defaultImageProps } = ctx;
-  tryRenderAemAssetsImage(ctx, {
-    alias: imageSwatchContext.label,
-    imageProps: defaultImageProps,
-    wrapper: document.createElement('span'),
-    params: {
-      width: defaultImageProps.width,
-      height: defaultImageProps.height,
-    },
-  });
+/**
+ * Applies quantities typed in the table, the way Luma's Update Shopping Cart does.
+ * Lines already saved by the drop-in are left as they are.
+ * @param {HTMLElement} list
+ */
+async function updateShoppingCart(list) {
+  const cartItems = Cart.getCartDataFromCache()?.items || [];
+  const updates = [...list.querySelectorAll('.cart-cart-summary-table__cell-qty-input')]
+    .map((input) => {
+      const uid = input.id.replace('cart-table-item-quantity-', '');
+      const quantity = Number(input.value);
+      const current = cartItems.find((item) => item.uid === uid);
+      if (!current || !Number.isFinite(quantity) || quantity < 1) return null;
+      if (quantity === current.quantity) return null;
+      return { uid, quantity };
+    })
+    .filter(Boolean);
+
+  if (updates.length) {
+    await Cart.updateProductsFromCart(updates);
+    return;
+  }
+  if (typeof Cart.refreshCart === 'function') await Cart.refreshCart();
+}
+
+/**
+ * Drop-in copy says "Order Summary", "Estimated Total" and "Checkout".
+ * Luma uses Summary, Order Total and Proceed to Checkout.
+ * @param {HTMLElement} summary
+ * @param {Record<string, any>} placeholders
+ */
+function polishSummary(summary, placeholders) {
+  const button = summary.querySelector('[data-testid="checkout-button"]');
+  if (button) {
+    button.textContent = placeholders?.Global?.ProceedToCheckout || 'Proceed to Checkout';
+  }
+
+  const discountLabel = document.querySelector('.cart__discount .dropin-accordion-section__title, .cart__discount button');
+  if (discountLabel && /discount code/i.test(discountLabel.textContent)) {
+    discountLabel.textContent = placeholders?.Global?.ApplyDiscountCode || 'Apply Discount Code';
+  }
+
+  summary.querySelectorAll('.cart-order-summary__label, [class*="cart-order-summary"] span, dt, div')
+    .forEach((node) => {
+      if (node.childNodes.length === 1 && node.textContent.trim() === 'Estimated Total') {
+        node.textContent = placeholders?.Global?.OrderTotal || 'Order Total';
+      }
+    });
 }
