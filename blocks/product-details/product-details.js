@@ -31,8 +31,9 @@ import {
   fetchPlaceholders,
 } from '../../scripts/commerce.js';
 import {
+  createCartActionValidityBridge,
   mountProductDetailsSubscription,
-  submitProductDetailsCart,
+  submitProductDetailsCartIfValid,
 } from '@recurbuy/storefront-eds/extend/product-details.js';
 
 // Initializers
@@ -51,17 +52,6 @@ function updateAddToCartButtonText(addToCartInstance, inCart, labels) {
       children: buttonText,
     }));
   }
-}
-
-function updateAddToCartDisabled(addToCartInstance, productValid, subscriptionController) {
-  if (!addToCartInstance) return;
-  const selectionValid = subscriptionController
-    ? subscriptionController.isSelectionValid()
-    : true;
-  addToCartInstance.setProps((prev) => ({
-    ...prev,
-    disabled: !productValid || !selectionValid,
-  }));
 }
 
 export default async function decorate(block) {
@@ -122,20 +112,20 @@ export default async function decorate(block) {
 
   block.replaceChildren(fragment);
 
-  let latestProductValid = true;
   /** @type {{ setProps: Function }|null} */
   let addToCartRef = null;
-  const subscriptionController = mountProductDetailsSubscription({
+  /** @type {ReturnType<typeof mountProductDetailsSubscription>|null} */
+  let subscriptionController = null;
+  const cartActionValidity = createCartActionValidityBridge({
+    getButton: () => addToCartRef,
+    getSubscriptionController: () => subscriptionController,
+  });
+  subscriptionController = mountProductDetailsSubscription({
     selectorRoot: $subscription,
     priceRoot: $subscriptionPrice,
     productPriceRoot: $price,
     detailsRoot: $subscriptionDetails,
-    onChange: (_selection, meta) => {
-      latestProductValid = meta.productValid;
-      if (addToCartRef) {
-        updateAddToCartDisabled(addToCartRef, meta.productValid, subscriptionController);
-      }
-    },
+    onChange: cartActionValidity.onSubscriptionChange,
   });
 
   const gallerySlots = {
@@ -250,36 +240,32 @@ export default async function decorate(block) {
         }));
 
         const values = pdpApi.getProductConfigurationValues();
-        const valid = pdpApi.isProductConfigurationValid();
-        const selectionValid = subscriptionController.isSelectionValid();
         const productData = events.lastPayload('pdp/data') ?? product;
+        const { submitted } = await submitProductDetailsCartIfValid({
+          configurationValid: pdpApi.isProductConfigurationValid(),
+          subscriptionController,
+          values,
+          productData: productData || product,
+          mode: isUpdateMode ? 'update' : 'add',
+          itemUid: itemUidFromUrl,
+        });
 
-        if (valid && selectionValid) {
-          await submitProductDetailsCart({
-            values: values || { sku: productData?.sku, quantity: 1 },
-            selection: subscriptionController.getSelection(),
-            productData: productData || product,
-            mode: isUpdateMode ? 'update' : 'add',
-            itemUid: itemUidFromUrl,
-          });
-
-          if (isUpdateMode) {
-            const updatedSku = values?.sku || productData?.sku;
-            if (updatedSku) {
-              const cartRedirectUrl = new URL(
-                rootLink('/cart'),
-                window.location.origin,
-              );
-              cartRedirectUrl.searchParams.set('itemUid', itemUidFromUrl);
-              window.location.href = cartRedirectUrl.toString();
-            } else {
-              console.warn(
-                'Could not retrieve SKU for updated item. Redirecting to cart without parameter.',
-              );
-              window.location.href = rootLink('/cart');
-            }
-            return;
+        if (submitted && isUpdateMode) {
+          const updatedSku = values?.sku || productData?.sku;
+          if (updatedSku) {
+            const cartRedirectUrl = new URL(
+              rootLink('/cart'),
+              window.location.origin,
+            );
+            cartRedirectUrl.searchParams.set('itemUid', itemUidFromUrl);
+            window.location.href = cartRedirectUrl.toString();
+          } else {
+            console.warn(
+              'Could not retrieve SKU for updated item. Redirecting to cart without parameter.',
+            );
+            window.location.href = rootLink('/cart');
           }
+          return;
         }
 
         // reset any previous alerts if successful
@@ -305,23 +291,16 @@ export default async function decorate(block) {
       } finally {
         // Reset button text using the helper function which respects the current mode
         updateAddToCartButtonText(addToCart, isUpdateMode, labels);
-        updateAddToCartDisabled(
-          addToCart,
-          pdpApi.isProductConfigurationValid(),
-          subscriptionController,
-        );
+        cartActionValidity.onProductValid(pdpApi.isProductConfigurationValid());
       }
     },
   })($addToCart);
 
   addToCartRef = addToCart;
-  updateAddToCartDisabled(addToCart, latestProductValid, subscriptionController);
+  cartActionValidity.sync();
 
   // Lifecycle Events
-  events.on('pdp/valid', (valid) => {
-    latestProductValid = valid;
-    updateAddToCartDisabled(addToCart, valid, subscriptionController);
-  }, { eager: true });
+  events.on('pdp/valid', cartActionValidity.onProductValid, { eager: true });
 
   // Handle option changes
   events.on('pdp/values', () => {

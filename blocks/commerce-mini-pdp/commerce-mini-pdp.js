@@ -25,9 +25,10 @@ import {
   commerceEndpointWithQueryParams,
 } from '../../scripts/commerce.js';
 import {
+  createCartActionValidityBridge,
   mountProductDetailsSubscription,
   resolveCartItemInitialSelection,
-  submitProductDetailsCart,
+  submitMiniPdpCartUpdate,
 } from '@recurbuy/storefront-eds/extend/product-details.js';
 
 import { loadCSS } from '../../scripts/aem.js';
@@ -160,24 +161,23 @@ export default async function createMiniPDP(cartItem, onUpdate, onClose) {
     // State management
     let isLoading = false;
     let inlineAlert = null;
-    let latestProductValid = true;
     /** @type {{ setProps: Function }|null} */
     let updateButtonRef = null;
+    /** @type {ReturnType<typeof mountProductDetailsSubscription>|null} */
+    let subscriptionController = null;
+    const cartActionValidity = createCartActionValidityBridge({
+      getButton: () => updateButtonRef,
+      getSubscriptionController: () => subscriptionController,
+      getLoading: () => isLoading,
+    });
 
-    const subscriptionController = mountProductDetailsSubscription({
+    subscriptionController = mountProductDetailsSubscription({
       selectorRoot: $subscription,
       priceRoot: $subscriptionPrice,
       productPriceRoot: $price,
       scope: 'modal',
       initialSelection: resolveCartItemInitialSelection(cartItem),
-      onChange: (_selection, meta) => {
-        latestProductValid = meta.productValid;
-        if (!updateButtonRef || isLoading) return;
-        updateButtonRef.setProps((prev) => ({
-          ...prev,
-          disabled: !meta.productValid || !meta.selectionValid,
-        }));
-      },
+      onChange: cartActionValidity.onSubscriptionChange,
     });
 
     // Render components
@@ -228,23 +228,13 @@ export default async function createMiniPDP(cartItem, onUpdate, onClose) {
               disabled: true,
             }));
 
-            const values = pdpApi.getProductConfigurationValues({ scope: 'modal' });
-            const valid = pdpApi.isProductConfigurationValid({ scope: 'modal' });
-
-            if (!valid || !subscriptionController.isSelectionValid()) {
-              throw new Error('Please select all required options');
-            }
-
-            const { cartItem: updateData } = await submitProductDetailsCart({
-              values,
-              selection: subscriptionController.getSelection(),
-              productData: {
-                sku,
-                externalId: product?.externalId || product?.id,
-                name: product?.name,
-              },
-              mode: 'update',
-              itemUid: cartItem.uid,
+            const updateData = await submitMiniPdpCartUpdate({
+              configurationValid: pdpApi.isProductConfigurationValid({ scope: 'modal' }),
+              subscriptionController,
+              values: pdpApi.getProductConfigurationValues({ scope: 'modal' }),
+              product,
+              sku,
+              cartItem,
             });
 
             events.emit('cart/updated', updateData);
@@ -278,11 +268,9 @@ export default async function createMiniPDP(cartItem, onUpdate, onClose) {
             isLoading = false;
             updateButton.setProps((prev) => ({
               ...prev,
-              children:
-                placeholders?.Global?.UpdateProductInCart,
-              disabled: !latestProductValid
-                || !subscriptionController.isSelectionValid(),
+              children: placeholders?.Global?.UpdateProductInCart,
             }));
+            cartActionValidity.sync();
           }
         },
         disabled: isLoading,
@@ -310,26 +298,12 @@ export default async function createMiniPDP(cartItem, onUpdate, onClose) {
     ]);
 
     updateButtonRef = updateButton;
-    updateButtonRef.setProps((prev) => ({
-      ...prev,
-      disabled: !latestProductValid
-        || !subscriptionController.isSelectionValid()
-        || isLoading,
-    }));
+    cartActionValidity.sync();
 
     // Handle PDP validation events
     events.on(
       'pdp/valid',
-      (valid) => {
-        latestProductValid = valid;
-        if (!updateButtonRef) return;
-        updateButtonRef.setProps((prev) => ({
-          ...prev,
-          disabled: !valid
-            || !subscriptionController.isSelectionValid()
-            || isLoading,
-        }));
-      },
+      cartActionValidity.onProductValid,
       { eager: true, scope: 'modal' },
     );
 

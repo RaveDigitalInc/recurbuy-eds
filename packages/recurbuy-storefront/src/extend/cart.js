@@ -177,6 +177,46 @@ export function createCartSubscriptionSession(options) {
     return true;
   };
 
+  /**
+   * Push a new `updateLineItems` identity so OrderSummary re-renders.
+   * @param {{ setProps: Function }|null|undefined} orderSummary
+   */
+  const refreshOrderSummary = (orderSummary) => {
+    orderSummary?.setProps((prev) => ({
+      ...prev,
+      updateLineItems: buildSummaryUpdater(),
+    }));
+  };
+
+  /**
+   * Cart / mini-cart `cart/data` handler: sync details (+ optional summary).
+   *
+   * @param {Object|null|undefined} cartData
+   * @param {{
+   *   variant?: 'cart'|'mini',
+   *   orderSummary?: { setProps: Function }|null,
+   * }} [syncOptions]
+   */
+  const syncFromCartData = async (cartData, syncOptions = {}) => {
+    const variant = syncOptions.variant === 'mini' ? 'mini' : 'cart';
+    try {
+      await refreshDetails(cartData?.items, { variant });
+    } catch (error) {
+      console.error('Error syncing cart subscription details:', error);
+    }
+
+    if (variant === 'mini') return;
+
+    try {
+      const changed = await refreshCheckoutConfig(cartData);
+      if (changed || syncOptions.orderSummary) {
+        refreshOrderSummary(syncOptions.orderSummary);
+      }
+    } catch (error) {
+      console.error('Error refreshing RecurBuy checkout config:', error);
+    }
+  };
+
   return {
     detailsByUid,
     createSummarySlots,
@@ -185,6 +225,18 @@ export function createCartSubscriptionSession(options) {
     refreshDetails,
     paintMiniPrices,
     refreshCheckoutConfig,
+    refreshOrderSummary,
+    syncFromCartData,
     getCheckoutConfig: () => checkoutConfig,
+  };
+}
+
+/**
+ * Checkout CartSummaryList ProductAttributes slot — subscription line attrs only.
+ * @returns {(ctx: Object) => void}
+ */
+export function createCheckoutProductAttributesSlot() {
+  return (ctx) => {
+    appendCartProductAttributesSlot(ctx, ctx.item, { format: 'cart' });
   };
 }

@@ -148,9 +148,7 @@ export default async function decorate(block) {
   });
   events.on('cart/data', (cartData) => {
     latestCartItems = cartData?.items || [];
-    subscriptions.refreshDetails(latestCartItems, { variant: 'mini' }).catch((error) => {
-      console.error('Error syncing cart subscription details:', error);
-    });
+    subscriptions.syncFromCartData(cartData, { variant: 'mini' });
   }, { eager: true });
 
   // Prevent mini cart from closing when undo is enabled

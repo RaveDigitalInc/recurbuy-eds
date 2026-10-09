@@ -78,7 +78,7 @@ import {
   setAddressOnCart,
 } from './utils.js';
 
-import { appendCartProductAttributesSlot } from '@recurbuy/storefront-eds/helpers/cart-product-attributes-slot.js';
+import { createCheckoutProductAttributesSlot } from '@recurbuy/storefront-eds/extend/cart.js';
 import {
   authPrivacyPolicyConsentSlot,
   SUPPORT_PATH,
@@ -431,9 +431,7 @@ export default async function decorate(block) {
             },
           });
         },
-        ProductAttributes: (ctx) => {
-          appendCartProductAttributesSlot(ctx, ctx.item, { format: 'cart' });
-        },
+        ProductAttributes: createCheckoutProductAttributesSlot(),
         Footer: (ctx) => {
           const giftOptions = document.createElement('div');
 

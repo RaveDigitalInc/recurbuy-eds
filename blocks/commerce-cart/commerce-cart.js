@@ -305,13 +305,6 @@ export default async function decorate(block) {
     })($giftOptions),
   ]);
 
-  const refreshOrderSummary = () => {
-    orderSummary?.setProps((prev) => ({
-      ...prev,
-      updateLineItems: subscriptions.buildSummaryUpdater(),
-    }));
-  };
-
   let cartViewEventPublished = false;
   // Events
   events.on(
@@ -328,17 +321,7 @@ export default async function decorate(block) {
         publishShoppingCartViewEvent();
       }
 
-      subscriptions.refreshDetails(cartData?.items).then(() => {
-        refreshOrderSummary();
-      }).catch((error) => {
-        console.error('Error syncing cart subscription details:', error);
-      });
-
-      subscriptions.refreshCheckoutConfig(cartData).then((changed) => {
-        if (changed) refreshOrderSummary();
-      }).catch((error) => {
-        console.error('Error refreshing RecurBuy checkout config:', error);
-      });
+      subscriptions.syncFromCartData(cartData, { orderSummary });
     },
     { eager: true },
   );
