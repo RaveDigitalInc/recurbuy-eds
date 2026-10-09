@@ -78,7 +78,7 @@ import {
   setAddressOnCart,
 } from './utils.js';
 
-import { appendCartProductAttributesSlot } from '../../scripts/helpers/cart-product-attributes-slot.js';
+import { appendCartProductAttributesSlot } from '@recurbuy/storefront-eds/helpers/cart-product-attributes-slot.js';
 import {
   authPrivacyPolicyConsentSlot,
   SUPPORT_PATH,

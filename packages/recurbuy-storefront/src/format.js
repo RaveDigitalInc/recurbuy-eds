@@ -81,6 +81,57 @@ export function parseSubscriptionPeriod(rawPeriod) {
 }
 
 /**
+ * Quote custom-attribute form of a period (`1|month`).
+ * @param {import('./contract.js').SubscriptionPeriod|null|undefined} period
+ * @returns {string}
+ */
+export function serializeSubscriptionPeriod(period) {
+  if (!period?.unit) return '';
+  const value = Number(period.value);
+  const normalizedValue = Number.isFinite(value) && value > 0 ? value : 1;
+  const unit = normalizePeriodUnit(period.unit);
+  return `${normalizedValue}|${unit}`;
+}
+
+/**
+ * Parses quote `recurbuy_billing_period` (`1|month`) or free-text periods.
+ * @param {string|{ value?: number, unit?: string }|undefined|null} raw
+ * @returns {import('./contract.js').SubscriptionPeriod|null}
+ */
+export function parseQuoteBillingPeriod(raw) {
+  if (typeof raw === 'string' && raw.includes('|')) {
+    const [valuePart, unitPart] = raw.split('|');
+    const value = parseInt(valuePart, 10);
+    /** @type {import('./contract.js').PeriodUnit} */
+    const unit = /** @type {import('./contract.js').PeriodUnit} */ (
+      normalizePeriodUnit(unitPart)
+    );
+    if (!unitPart || !unit) return null;
+    return {
+      value: Number.isNaN(value) || value < 1 ? 1 : value,
+      unit,
+    };
+  }
+
+  if (raw == null || raw === '') return null;
+  return parseSubscriptionPeriod(raw);
+}
+
+/**
+ * Magento “Subscription End Date” fact from a plan’s detail rows.
+ * @param {Array<{ label?: string, value?: string }>|null|undefined} facts
+ * @returns {string}
+ */
+export function endsLabelFromPlanFacts(facts) {
+  if (!Array.isArray(facts)) return '';
+  const match = facts.find((fact) => {
+    const label = typeof fact?.label === 'string' ? fact.label.trim().toLowerCase() : '';
+    return /^(subscription end date|subscription ends|end date)\b/.test(label);
+  });
+  return typeof match?.value === 'string' ? match.value.trim() : '';
+}
+
+/**
  * Billing cycle label used beside a price, for example "Week" or "2 Months".
  * @param {import('./contract.js').SubscriptionPeriod|null|undefined} period
  * @returns {string}

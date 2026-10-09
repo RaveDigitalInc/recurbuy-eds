@@ -1,6 +1,13 @@
 import { fetchGraphQl } from '@dropins/storefront-cart/api.js';
-import { RECURBUY_SUBSCRIPTION_OPTION_ID } from '../contract.js';
-import { parseSubscriptionPeriod } from '../format.js';
+import {
+  RECURBUY_BILLING_PERIOD,
+  RECURBUY_ENDS_LABEL,
+  RECURBUY_PLAN_LABEL,
+  RECURBUY_SUBSCRIPTION_OPTION_ID,
+  RECURBUY_SUBSCRIPTION_START_DATE,
+} from '../contract.js';
+import { parseQuoteBillingPeriod, parseSubscriptionPeriod } from '../format.js';
+import { isPlaceholderPlanLabel } from './storefront-cart-items-mapper.js';
 import { peekCachedSubscriptionConfig } from './subscription-config-cache.js';
 
 const QUOTE_SUBSCRIPTION_MARKERS_QUERY = `
@@ -22,8 +29,7 @@ const QUOTE_SUBSCRIPTION_MARKERS_QUERY = `
 `;
 
 /**
- * Cart-item custom attributes are the quote's subscription marker.
- * sessionStorage is only the tab that added the line.
+ * Cart-item custom attributes are the quote's subscription SoR.
  *
  * @param {string} cartId
  * @returns {Promise<Map<string, {
@@ -32,6 +38,9 @@ const QUOTE_SUBSCRIPTION_MARKERS_QUERY = `
  *   unitPrice: number|null,
  *   currency: string,
  *   startDate: string,
+ *   planLabel: string,
+ *   period: import('../contract.js').SubscriptionPeriod|null,
+ *   endsLabel: string,
  * }>>}
  */
 export async function loadQuoteSubscriptionMarkers(cartId) {
@@ -53,7 +62,8 @@ export async function loadQuoteSubscriptionMarkers(cartId) {
 
   items.forEach((item) => {
     const uid = typeof item?.uid === 'string' ? item.uid : '';
-    const optionId = attributeValue(item?.custom_attributes, RECURBUY_SUBSCRIPTION_OPTION_ID);
+    const attrs = item?.custom_attributes;
+    const optionId = attributeValue(attrs, RECURBUY_SUBSCRIPTION_OPTION_ID);
     if (!uid || !optionId || optionId === '0') return;
 
     const unitPrice = Number(item?.prices?.price?.value);
@@ -64,7 +74,10 @@ export async function loadQuoteSubscriptionMarkers(cartId) {
       currency: typeof item?.prices?.price?.currency === 'string'
         ? item.prices.price.currency
         : 'USD',
-      startDate: attributeValue(item?.custom_attributes, 'recurbuy_subscription_start_date'),
+      startDate: attributeValue(attrs, RECURBUY_SUBSCRIPTION_START_DATE),
+      planLabel: attributeValue(attrs, RECURBUY_PLAN_LABEL),
+      period: parseQuoteBillingPeriod(attributeValue(attrs, RECURBUY_BILLING_PERIOD)),
+      endsLabel: attributeValue(attrs, RECURBUY_ENDS_LABEL),
     });
   });
 
@@ -78,30 +91,54 @@ export async function loadQuoteSubscriptionMarkers(cartId) {
  *   unitPrice: number|null,
  *   currency: string,
  *   startDate: string,
+ *   planLabel: string,
+ *   period: import('../contract.js').SubscriptionPeriod|null,
+ *   endsLabel: string,
  * }} marker
  * @returns {Promise<import('../contract.js').CartSubscriptionDetails>}
  */
 export async function subscriptionDetailsFromQuoteMarker(marker) {
-  // Cart must not GET subscription-config per line — that was N parallel identical-looking
-  // requests. Price comes from the quote; label/period only from an already-warm PDP cache.
-  const presentation = presentationFromCachedConfig(marker.catalogProductId, marker.optionId);
-  const priceValue = marker.unitPrice ?? presentation.priceValue;
+  // Prefer presentation written onto the quote at add time. Cached PDP config is
+  // only a fallback for lines stamped before those attributes existed.
+  const cached = needsCachedPresentation(marker)
+    ? presentationFromCachedConfig(marker.catalogProductId, marker.optionId)
+    : emptyPresentation();
+
+  const planLabel = !isPlaceholderPlanLabel(marker.planLabel)
+    ? marker.planLabel
+    : (cached.planLabel || `Plan ${marker.optionId}`);
+  const period = marker.period || cached.period || { value: 1, unit: 'month' };
+  const endsLabel = marker.endsLabel || cached.endsLabel;
+  const startDate = marker.startDate || cached.startDate;
+  const priceValue = marker.unitPrice ?? cached.priceValue;
 
   return {
     purchaseType: 'subscription',
     planId: marker.optionId,
     subscriptionOptionId: marker.optionId,
-    planLabel: presentation.planLabel || `Plan ${marker.optionId}`,
-    period: presentation.period || { value: 1, unit: 'month' },
+    planLabel,
+    period,
     price: {
       value: Number.isFinite(priceValue) ? priceValue : 0,
-      currency: marker.currency || presentation.currency || 'USD',
+      currency: marker.currency || cached.currency || 'USD',
     },
-    ...(marker.startDate || presentation.startDate
-      ? { startDate: marker.startDate || presentation.startDate }
-      : {}),
-    ...(presentation.endsLabel ? { endsLabel: presentation.endsLabel } : {}),
+    ...(startDate ? { startDate } : {}),
+    ...(endsLabel ? { endsLabel } : {}),
   };
+}
+
+/**
+ * @param {{
+ *   planLabel: string,
+ *   period: import('../contract.js').SubscriptionPeriod|null,
+ *   endsLabel: string,
+ * }} marker
+ * @returns {boolean}
+ */
+function needsCachedPresentation(marker) {
+  return isPlaceholderPlanLabel(marker.planLabel)
+    || !marker.period
+    || !marker.endsLabel;
 }
 
 /**
@@ -141,6 +178,27 @@ function decodeCatalogId(uid) {
 }
 
 /**
+ * @returns {{
+ *   planLabel: string,
+ *   period: import('../contract.js').SubscriptionPeriod|null,
+ *   startDate: string,
+ *   endsLabel: string,
+ *   priceValue: number|null,
+ *   currency: string,
+ * }}
+ */
+function emptyPresentation() {
+  return {
+    planLabel: '',
+    period: null,
+    startDate: '',
+    endsLabel: '',
+    priceValue: null,
+    currency: '',
+  };
+}
+
+/**
  * Read-only: never starts a network request.
  *
  * @param {string} productId
@@ -155,14 +213,7 @@ function decodeCatalogId(uid) {
  * }}
  */
 function presentationFromCachedConfig(productId, optionId) {
-  const empty = {
-    planLabel: '',
-    period: null,
-    startDate: '',
-    endsLabel: '',
-    priceValue: null,
-    currency: '',
-  };
+  const empty = emptyPresentation();
   if (!productId) return empty;
 
   const config = peekCachedSubscriptionConfig(productId);

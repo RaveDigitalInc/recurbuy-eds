@@ -4,12 +4,14 @@
  */
 
 import { appendCartProductAttributesSlot } from '../helpers/cart-product-attributes-slot.js';
+import { ensureRecurBuyStyles } from '../helpers/ensure-styles.js';
 import { createSubscriptionSummaryUpdater } from '../cart-order-summary.js';
 import { fetchCheckoutConfig } from '../adapters/storefront-checkout-config-adapter.js';
 import {
   applySubscriptionLinePrices,
   clearCartSubscriptionDetails,
   fetchCartItemSubscriptionDetails,
+  paintMiniCartSubscriptionPrices,
   renderCartSubscriptionDetails,
   syncCartSubscriptionDetails,
 } from '../cart-subscription-details.js';
@@ -22,6 +24,8 @@ import {
  * }} options
  */
 export function createCartSubscriptionSession(options) {
+  ensureRecurBuyStyles();
+
   const {
     getCartItems,
     labels = {},
@@ -48,26 +52,55 @@ export function createCartSubscriptionSession(options) {
     );
   };
 
-  const buildSummaryUpdater = () => {
-    const withSubscription = createSubscriptionSummaryUpdater({
-      getItems: getCartItems,
-      getDetailsByUid: () => detailsByUid,
-      getConfig: () => checkoutConfig,
-      labels,
-      showChargedFor,
-    });
-    return (lineItems) => withSubscription(lineItems).filter((line) => (
-      line.key !== 'shippingContent'
-      && !(line.key === 'taxContent' && line.sortOrder < 900)
-    ));
+  const buildSummaryUpdater = () => createSubscriptionSummaryUpdater({
+    getItems: getCartItems,
+    getDetailsByUid: () => detailsByUid,
+    getConfig: () => checkoutConfig,
+    labels,
+    showChargedFor,
+  });
+
+  /**
+   * Append subscription details (+ optional custom attrs) into a cart/list slot.
+   * @param {Object} ctx
+   * @param {'cart'|'mini'} variant
+   */
+  const paintAttributesSlot = (ctx, variant = 'cart') => {
+    const { item } = ctx;
+    const uid = item?.uid;
+    if (ctx.querySelector?.('.cart-subscription-details')) return;
+
+    appendCartProductAttributesSlot(ctx, item, { format: 'cart' });
+
+    const subscriptionRoot = document.createElement('div');
+    subscriptionRoot.className = variant === 'mini'
+      ? 'cart-subscription-details cart-subscription-details--compact'
+      : 'cart-subscription-details';
+    ctx.appendChild(subscriptionRoot);
+    if (uid) rootsByUid.set(uid, subscriptionRoot);
+
+    const cachedDetails = uid ? detailsByUid.get(uid) : null;
+    if (cachedDetails) {
+      renderCartSubscriptionDetails(subscriptionRoot, cachedDetails, { variant });
+      return;
+    }
+
+    const details = fetchCartItemSubscriptionDetails(item);
+    if (details && uid) {
+      detailsByUid.set(uid, details);
+      renderCartSubscriptionDetails(subscriptionRoot, details, { variant });
+      applyPrices(uid, details, item);
+    } else {
+      clearCartSubscriptionDetails(subscriptionRoot);
+    }
   };
 
   /**
-   * Slot handlers for CartSummaryTable — merchant spreads into `slots: { ... }`.
+   * Slot handlers for CartSummaryList — merchant spreads into `slots: { ... }`.
    * @returns {Record<string, Function>}
    */
   const createSummarySlots = () => ({
-    Price: (ctx) => {
+    ItemPrice: (ctx) => {
       const { item } = ctx;
       const uid = item?.uid;
       if (!uid) return;
@@ -75,7 +108,7 @@ export function createCartSubscriptionSession(options) {
       applyPrices(uid, detailsByUid.get(uid), item);
     },
 
-    Subtotal: (ctx) => {
+    ItemTotal: (ctx) => {
       const { item } = ctx;
       const uid = item?.uid;
       if (!uid) return;
@@ -83,36 +116,42 @@ export function createCartSubscriptionSession(options) {
       applyPrices(uid, detailsByUid.get(uid), item);
     },
 
-    Configurations: (ctx) => {
-      const { item } = ctx;
-      const uid = item?.uid;
-      if (ctx.querySelector?.('.cart-subscription-details')) return;
-
-      appendCartProductAttributesSlot(ctx, item, { format: 'cart' });
-
-      const subscriptionRoot = document.createElement('div');
-      subscriptionRoot.className = 'cart-subscription-details';
-      ctx.appendChild(subscriptionRoot);
-      if (uid) rootsByUid.set(uid, subscriptionRoot);
-
-      const cachedDetails = uid ? detailsByUid.get(uid) : null;
-      if (cachedDetails) {
-        renderCartSubscriptionDetails(subscriptionRoot, cachedDetails);
-        return;
-      }
-
-      const details = fetchCartItemSubscriptionDetails(item);
-      if (details && uid) {
-        detailsByUid.set(uid, details);
-        renderCartSubscriptionDetails(subscriptionRoot, details);
-        applyPrices(uid, details, item);
-      } else {
-        clearCartSubscriptionDetails(subscriptionRoot);
-      }
+    ProductAttributes: (ctx) => {
+      paintAttributesSlot(ctx, 'cart');
     },
   });
 
-  const refreshDetails = async (items) => {
+  const paintMiniPrices = (items) => {
+    const list = items || getCartItems() || [];
+    const paint = () => paintMiniCartSubscriptionPrices(list, detailsByUid);
+    paint();
+    requestAnimationFrame(() => {
+      paint();
+      requestAnimationFrame(paint);
+    });
+  };
+
+  /**
+   * Slot handlers for MiniCart — merchant spreads into `slots: { ... }`.
+   * @returns {Record<string, Function>}
+   */
+  const createMiniCartSlots = () => ({
+    ItemPrice: () => {
+      paintMiniPrices();
+    },
+
+    ItemTotal: () => {
+      paintMiniPrices();
+    },
+
+    ProductAttributes: (ctx) => {
+      paintAttributesSlot(ctx, 'mini');
+      paintMiniPrices();
+    },
+  });
+
+  const refreshDetails = async (items, refreshOptions = {}) => {
+    const variant = refreshOptions.variant === 'mini' ? 'mini' : 'cart';
     const next = await syncCartSubscriptionDetails(items, detailsByUid);
     detailsByUid.clear();
     next.forEach((details, uid) => {
@@ -120,11 +159,14 @@ export function createCartSubscriptionSession(options) {
       const item = (items || []).find((entry) => entry?.uid === uid);
       applyPrices(uid, details, item);
       const root = rootsByUid.get(uid);
-      if (root) renderCartSubscriptionDetails(root, details);
+      if (root) renderCartSubscriptionDetails(root, details, { variant });
     });
     rootsByUid.forEach((root, uid) => {
       if (!next.has(uid)) clearCartSubscriptionDetails(root);
     });
+    if (variant === 'mini') {
+      paintMiniPrices(items);
+    }
   };
 
   const refreshCheckoutConfig = async (cartData) => {
@@ -138,8 +180,10 @@ export function createCartSubscriptionSession(options) {
   return {
     detailsByUid,
     createSummarySlots,
+    createMiniCartSlots,
     buildSummaryUpdater,
     refreshDetails,
+    paintMiniPrices,
     refreshCheckoutConfig,
     getCheckoutConfig: () => checkoutConfig,
   };

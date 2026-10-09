@@ -37,7 +37,10 @@ On Adobe Commerce as a Cloud Service:
 3. Therefore EDS must call  
    `POST /api/recurbuy/storefront/checkout/pending-subscription-add`  
    **before** GraphQL add, so the panel’s quote-item-price webhook can apply plan %.
-4. After add, EDS sets cart item custom attributes (`recurbuy_subscription_option_id`, …) for place-after profile create.
+4. After add, EDS sets cart item custom attributes for place-after **and** cart UI:
+   `recurbuy_subscription_option_id`, optional `recurbuy_subscription_start_date`,
+   plus presentation `recurbuy_plan_label` / `recurbuy_billing_period` / `recurbuy_ends_label`.
+   Cart and mini-cart read those from the quote GraphQL (no sessionStorage SoR).
 
 RecurBuy does **not** replace Adobe PDP/Cart. It only marks the line and prices via webhooks.
 
@@ -97,8 +100,14 @@ npm install @recurbuy/storefront-eds
 ### 2. Import map (`head.html`)
 
 ```json
+/* local file: package (this repo) */
 "@recurbuy/storefront-eds/": "/packages/recurbuy-storefront/src/",
 "@recurbuy/storefront-eds": "/packages/recurbuy-storefront/src/index.js"
+
+/* after npm install — point import map at wherever EDS serves the package
+   (copy into /scripts/recurbuy-storefront/src or expose node_modules): */
+/* "@recurbuy/storefront-eds/": "/scripts/recurbuy-storefront/src/", */
+/* "@recurbuy/storefront-eds": "/scripts/recurbuy-storefront/src/index.js" */
 ```
 
 (Adjust path if the package lives under `node_modules` and you vendor/copy sources for EDS static serving.)
@@ -124,7 +133,7 @@ Local panel example: `http://127.0.0.1:8080`. After changing config, clear `sess
 In `scripts/initializers/cart.js`, register the cart model transformer so GraphQL `custom_attributes` reach the drop-in:
 
 ```js
-import { createCartModelCustomAttributesTransformer } from '../../packages/recurbuy-storefront/src/extend/initializer.js';
+import { createCartModelCustomAttributesTransformer } from '@recurbuy/storefront-eds/extend/initializer.js';
 import { config, initialize, setFetchGraphQlHeaders } from '@dropins/storefront-cart/api.js';
 
 // inside initialize mount:
@@ -150,7 +159,7 @@ models: {
 import {
   mountProductDetailsSubscription,
   submitProductDetailsCart,
-} from '../../packages/recurbuy-storefront/src/extend/product-details.js';
+} from '@recurbuy/storefront-eds/extend/product-details.js';
 
 const subscriptionController = mountProductDetailsSubscription({
   selectorRoot: $subscription,
@@ -177,7 +186,7 @@ const result = await submitProductDetailsCart({
 ### 6. Cart block (required)
 
 ```js
-import { createCartSubscriptionSession } from '../../packages/recurbuy-storefront/src/extend/cart.js';
+import { createCartSubscriptionSession } from '@recurbuy/storefront-eds/extend/cart.js';
 import * as Cart from '@dropins/storefront-cart/api.js';
 
 const subscriptions = createCartSubscriptionSession({
@@ -188,10 +197,10 @@ const subscriptions = createCartSubscriptionSession({
   },
 });
 
-provider.render(CartSummaryTable, {
+provider.render(CartSummaryList, {
   slots: {
-    ...subscriptions.createSummarySlots(), // Price, Subtotal, Configurations
-    // merchant Thumbnail / Actions stay here
+    ...subscriptions.createSummarySlots(), // ItemPrice, ItemTotal, ProductAttributes
+    // merchant Thumbnail / Footer stay here
   },
 })($list);
 
@@ -209,8 +218,8 @@ events.on('cart/data', async (cartData) => {
 
 | Surface | Status on this branch |
 |---------|------------------------|
-| Mini-cart | Still uses compatibility shims under `scripts/subscriptions` / helpers — same package under the hood |
-| Checkout product attributes | Helper `appendCartProductAttributesSlot` |
+| Mini-cart | `createMiniCartSlots()` + `refreshDetails(..., { variant: 'mini' })` |
+| Checkout product attributes | Helper `appendCartProductAttributesSlot` (subscription line attrs) |
 | Checkout success profiles | Adapters in package (`fetchCheckoutSuccessProfiles`) — wire when needed |
 
 ---

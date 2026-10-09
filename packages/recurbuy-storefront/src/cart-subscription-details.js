@@ -69,8 +69,8 @@ export function clearCartSubscriptionDetails(root) {
 }
 
 /**
- * Reads subscription details snapshot for a cart item from stored selection.
- * Returns null when the session snapshot has no plan.
+ * Optimistic paint from the in-memory add cache (same document only).
+ * Prefer `syncCartSubscriptionDetails` / quote attrs for durable details.
  *
  * @param {{
  *   uid?: string,
@@ -106,6 +106,7 @@ export function fetchCartItemSubscriptionDetails(item) {
     period: snapshot.period || { value: 1, unit: 'month' },
     price: snapshot.price || { value: 0, currency: 'USD' },
     startDate: snapshot.startDate || startDateFromCart || undefined,
+    ...(snapshot.endsLabel ? { endsLabel: snapshot.endsLabel } : {}),
   };
 }
 
@@ -151,8 +152,8 @@ async function runCartSubscriptionSync(items, detailsByUid) {
   pruneSelectionsToCartItems(list);
 
   // AccS guest carts: do not call GET …/checkout/cart-items (REST 404 on masked
-  // guest carts). Do not GET subscription-config per cart line either — price is on
-  // the quote; plan title comes from the add-time snapshot or one options-list.
+  // guest carts). Presentation lives on quote custom_attributes; options-list
+  // only backfills titles for lines stamped before plan_label existed.
   const quoteMarkers = await loadQuoteSubscriptionMarkers((await resolveCommerceCartId()) || '');
 
   const titleProductIds = new Set();
@@ -161,8 +162,9 @@ async function runCartSubscriptionSync(items, detailsByUid) {
 
     const marker = quoteMarkers.get(item.uid);
     const quoteDetails = marker ? await subscriptionDetailsFromQuoteMarker(marker) : null;
-    const snapshot = fetchCartItemSubscriptionDetails(item);
-    const details = mergeQuoteDetailsWithSnapshot(quoteDetails, snapshot);
+    // Same-document optimistic cache only — never a durable SoR.
+    const optimistic = fetchCartItemSubscriptionDetails(item);
+    const details = mergeQuoteDetailsWithSnapshot(quoteDetails, optimistic);
 
     if (details && isPlaceholderPlanLabel(details.planLabel) && marker?.catalogProductId) {
       titleProductIds.add(String(marker.catalogProductId));
@@ -213,8 +215,8 @@ async function runCartSubscriptionSync(items, detailsByUid) {
 }
 
 /**
- * The quote attribute is the subscription. Keep a tab snapshot so later paints
- * in this document do not wait on another cart read.
+ * Keep the in-memory add cache aligned with quote details for slot paints
+ * that run before the next sync in this document.
  *
  * @param {{ uid?: string, sku?: string, topLevelSku?: string }} item
  * @param {CartSubscriptionDetails} details
@@ -228,6 +230,7 @@ function rememberQuoteSelection(item, details) {
       period: details.period,
       price: details.price,
       ...(details.startDate ? { startDate: details.startDate } : {}),
+      ...(details.endsLabel ? { endsLabel: details.endsLabel } : {}),
     },
   };
 
@@ -238,25 +241,26 @@ function rememberQuoteSelection(item, details) {
 }
 
 /**
- * Quote has the unit price; the add-time snapshot keeps the human plan title.
+ * Quote attrs win. In-memory optimistic details fill only the gap before attrs land.
  *
  * @param {CartSubscriptionDetails|null} quoteDetails
- * @param {CartSubscriptionDetails|null} snapshot
+ * @param {CartSubscriptionDetails|null} optimistic
  * @returns {CartSubscriptionDetails|null}
  */
-function mergeQuoteDetailsWithSnapshot(quoteDetails, snapshot) {
-  if (!quoteDetails) return snapshot;
-  if (!snapshot || snapshot.purchaseType !== 'subscription') return quoteDetails;
+function mergeQuoteDetailsWithSnapshot(quoteDetails, optimistic) {
+  if (!quoteDetails) return optimistic;
+  if (!optimistic || optimistic.purchaseType !== 'subscription') return quoteDetails;
 
-  const keepSnapshotLabel = isPlaceholderPlanLabel(quoteDetails.planLabel)
-    && !isPlaceholderPlanLabel(snapshot.planLabel);
+  const keepOptimisticLabel = isPlaceholderPlanLabel(quoteDetails.planLabel)
+    && !isPlaceholderPlanLabel(optimistic.planLabel);
 
   return {
     ...quoteDetails,
-    planLabel: keepSnapshotLabel ? snapshot.planLabel : quoteDetails.planLabel,
-    period: quoteDetails.period || snapshot.period,
-    endsLabel: quoteDetails.endsLabel || snapshot.endsLabel,
-    startDate: quoteDetails.startDate || snapshot.startDate,
+    planLabel: keepOptimisticLabel ? optimistic.planLabel : quoteDetails.planLabel,
+    period: quoteDetails.period || optimistic.period,
+    endsLabel: quoteDetails.endsLabel || optimistic.endsLabel,
+    startDate: quoteDetails.startDate || optimistic.startDate,
+    price: quoteDetails.price || optimistic.price,
   };
 }
 

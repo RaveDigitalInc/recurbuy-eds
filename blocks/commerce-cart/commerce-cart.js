@@ -10,11 +10,14 @@ import {
 } from '@dropins/tools/components.js';
 
 // Dropin Containers
-import CartSummaryTable from '@dropins/storefront-cart/containers/CartSummaryTable.js';
+import CartSummaryList from '@dropins/storefront-cart/containers/CartSummaryList.js';
 import OrderSummary from '@dropins/storefront-cart/containers/OrderSummary.js';
 import EstimateShipping from '@dropins/storefront-cart/containers/EstimateShipping.js';
 import Coupons from '@dropins/storefront-cart/containers/Coupons.js';
+import GiftCards from '@dropins/storefront-cart/containers/GiftCards.js';
+import GiftOptions from '@dropins/storefront-cart/containers/GiftOptions.js';
 import { render as wishlistRender } from '@dropins/storefront-wishlist/render.js';
+import { WishlistToggle } from '@dropins/storefront-wishlist/containers/WishlistToggle.js';
 import { WishlistAlert } from '@dropins/storefront-wishlist/containers/WishlistAlert.js';
 import { tryRenderAemAssetsImage } from '@dropins/tools/lib/aem/assets.js';
 
@@ -24,7 +27,7 @@ import { publishShoppingCartViewEvent } from '@dropins/storefront-cart/api.js';
 // Modal and Mini PDP
 import createModal from '../modal/modal.js';
 import createMiniPDP from '../commerce-mini-pdp/commerce-mini-pdp.js';
-import { createCartSubscriptionSession } from '../../packages/recurbuy-storefront/src/extend/cart.js';
+import { createCartSubscriptionSession } from '@recurbuy/storefront-eds/extend/cart.js';
 
 // Initializers
 import '../../scripts/initializers/cart.js';
@@ -37,6 +40,8 @@ export default async function decorate(block) {
   // Configuration
   const {
     'hide-heading': hideHeading = 'false',
+    'max-items': maxItems,
+    'hide-attributes': hideAttributes = '',
     'enable-item-quantity-update': enableUpdateItemQuantity = 'false',
     'enable-item-remove': enableRemoveItem = 'true',
     'enable-estimate-shipping': enableEstimateShipping = 'false',
@@ -48,20 +53,20 @@ export default async function decorate(block) {
 
   const placeholders = await fetchPlaceholders();
 
+  const _cart = Cart.getCartDataFromCache();
+
   // Modal state
   let currentModal = null;
   let currentNotification = null;
-
   let orderSummary = null;
 
-  // RecurBuy Extend glue — package owns line attrs, prices, checkout/config.
+  // RecurBuy: subscription line details / summary only.
   const subscriptions = createCartSubscriptionSession({
     getCartItems: () => Cart.getCartDataFromCache()?.items || [],
     labels: {
       payNow: placeholders?.Global?.YouPayNow,
       chargedFor: placeholders?.Global?.YouWillBeChargedFor,
     },
-    showChargedFor: false,
   });
   const subscriptionSlots = subscriptions.createSummarySlots();
 
@@ -70,18 +75,11 @@ export default async function decorate(block) {
     <div class="cart__notification"></div>
     <div class="cart__wrapper">
       <div class="cart__left-column">
-        <h1 class="cart__heading">Shopping Cart</h1>
         <div class="cart__list"></div>
-        <div class="cart__update"></div>
-        <div class="cart__discount"></div>
       </div>
       <div class="cart__right-column">
-        <h2 class="cart__summary-title">Summary</h2>
-        <details class="cart__estimate">
-          <summary class="cart__estimate-toggle">Estimate Shipping and Tax</summary>
-          <div class="cart__estimate-body"></div>
-        </details>
         <div class="cart__order-summary"></div>
+        <div class="cart__gift-options"></div>
       </div>
     </div>
 
@@ -90,14 +88,10 @@ export default async function decorate(block) {
 
   const $wrapper = fragment.querySelector('.cart__wrapper');
   const $notification = fragment.querySelector('.cart__notification');
-  const $heading = fragment.querySelector('.cart__heading');
   const $list = fragment.querySelector('.cart__list');
-  const $update = fragment.querySelector('.cart__update');
-  const $discount = fragment.querySelector('.cart__discount');
   const $summary = fragment.querySelector('.cart__order-summary');
-  const $estimate = fragment.querySelector('.cart__estimate');
-  const $estimateBody = fragment.querySelector('.cart__estimate-body');
   const $emptyCart = fragment.querySelector('.cart__empty-cart');
+  const $giftOptions = fragment.querySelector('.cart__gift-options');
   const $rightColumn = fragment.querySelector('.cart__right-column');
 
   block.innerHTML = '';
@@ -115,9 +109,11 @@ export default async function decorate(block) {
   // Handle Edit Button Click
   async function handleEditButtonClick(cartItem) {
     try {
+      // Create mini PDP content
       const miniPDPContent = await createMiniPDP(
         cartItem,
         async (_updateData) => {
+          // Show success message when mini-PDP updates item
           const productName = cartItem.name
             || cartItem.product?.name
             || placeholders?.Global?.CartUpdatedProductName;
@@ -126,6 +122,7 @@ export default async function decorate(block) {
             productName,
           );
 
+          // Clear any existing notifications
           currentNotification?.remove();
 
           currentNotification = await UI.render(InLineAlert, {
@@ -140,6 +137,7 @@ export default async function decorate(block) {
             },
           })($notification);
 
+          // Auto-dismiss after 5 seconds
           setTimeout(() => {
             currentNotification?.remove();
           }, 5000);
@@ -152,6 +150,7 @@ export default async function decorate(block) {
         },
       );
 
+      // Create and show modal
       currentModal = await createModal([miniPDPContent]);
 
       if (currentModal.block) {
@@ -161,8 +160,11 @@ export default async function decorate(block) {
       currentModal.showModal();
     } catch (error) {
       console.error('Error opening mini PDP modal:', error);
+
+      // Clear any existing notifications
       currentNotification?.remove();
 
+      // Show error notification
       currentNotification = await UI.render(InLineAlert, {
         heading: placeholders?.Global?.ProductLoadError,
         type: 'error',
@@ -177,23 +179,24 @@ export default async function decorate(block) {
     }
   }
 
-  // Shipping and the tax row stay inside the collapsed estimate block.
-  // The order total reuses the key `taxContent` at sortOrder 900, so only the
-  // earlier tax row is removed.
-
   // Render Containers
   const getProductLink = (product) => rootLink(`/products/${product.url.urlKey}/${product.topLevelSku}`);
-
-  if (hideHeading === 'true') $heading.hidden = true;
-
   [, orderSummary] = await Promise.all([
-    provider.render(CartSummaryTable, {
+    // Cart List
+    provider.render(CartSummaryList, {
+      hideHeading: hideHeading === 'true',
       routeProduct: getProductLink,
       routeEmptyCartCTA: startShoppingURL ? () => rootLink(startShoppingURL) : undefined,
-      allowQuantityUpdates: enableUpdateItemQuantity === 'true',
-      allowRemoveItems: enableRemoveItem === 'true',
+      maxItems: parseInt(maxItems, 10) || undefined,
+      attributesToHide: hideAttributes
+        .split(',')
+        .map((attr) => attr.trim().toLowerCase()),
+      enableUpdateItemQuantity: enableUpdateItemQuantity === 'true',
+      enableRemoveItem: enableRemoveItem === 'true',
       undo: undo === 'true',
       slots: {
+        ...subscriptionSlots,
+
         Thumbnail: (ctx) => {
           const { item, defaultImageProps } = ctx;
           const anchorWrapper = document.createElement('a');
@@ -203,6 +206,7 @@ export default async function decorate(block) {
             alias: item.sku,
             imageProps: defaultImageProps,
             wrapper: anchorWrapper,
+
             params: {
               width: defaultImageProps.width,
               height: defaultImageProps.height,
@@ -210,74 +214,105 @@ export default async function decorate(block) {
           });
         },
 
-        ...subscriptionSlots,
+        Footer: (ctx) => {
+          // Edit Link
+          if (ctx.item?.itemType === 'ConfigurableCartItem' && enableUpdatingProduct === 'true') {
+            const editLink = document.createElement('div');
+            editLink.className = 'cart-item-edit-link';
 
-        Actions: (ctx) => {
-          if (enableUpdatingProduct !== 'true') return;
+            UI.render(Button, {
+              children: placeholders?.Global?.CartEditButton,
+              variant: 'tertiary',
+              size: 'medium',
+              icon: h(Icon, { source: 'Edit' }),
+              onClick: () => handleEditButtonClick(ctx.item),
+            })(editLink);
 
-          const editLink = document.createElement('div');
-          editLink.className = 'cart-item-edit-link';
-          UI.render(Button, {
-            variant: 'tertiary',
+            ctx.appendChild(editLink);
+          }
+
+          // Wishlist Button (if product is not configurable)
+          const $wishlistToggle = document.createElement('div');
+          $wishlistToggle.classList.add('cart__action--wishlist-toggle');
+
+          wishlistRender.render(WishlistToggle, {
+            product: ctx.item,
             size: 'medium',
-            icon: h(Icon, { source: 'Edit' }),
-            'aria-label': placeholders?.Global?.CartEditButton || 'Edit item',
-            onClick: () => handleEditButtonClick(ctx.item),
-          })(editLink);
-          ctx.appendChild(editLink);
+            labelToWishlist: placeholders?.Global?.CartMoveToWishlist,
+            labelWishlisted: placeholders?.Global?.CartRemoveFromWishlist,
+            removeProdFromCart: Cart.updateProductsFromCart,
+          })($wishlistToggle);
+
+          ctx.appendChild($wishlistToggle);
+
+          // Gift Options
+          const giftOptions = document.createElement('div');
+
+          provider.render(GiftOptions, {
+            item: ctx.item,
+            view: 'product',
+            dataSource: 'cart',
+            handleItemsLoading: ctx.handleItemsLoading,
+            handleItemsError: ctx.handleItemsError,
+            onItemUpdate: ctx.onItemUpdate,
+            slots: {
+              SwatchImage: swatchImageSlot,
+            },
+          })(giftOptions);
+
+          ctx.appendChild(giftOptions);
         },
       },
     })($list),
 
+    // Order Summary
     provider.render(OrderSummary, {
-      updateLineItems: subscriptions.buildSummaryUpdater(),
+      routeProduct: getProductLink,
       routeCheckout: checkoutURL ? () => rootLink(checkoutURL) : undefined,
+      updateLineItems: subscriptions.buildSummaryUpdater(),
+      slots: {
+        EstimateShipping: async (ctx) => {
+          if (enableEstimateShipping === 'true') {
+            const wrapper = document.createElement('div');
+            await provider.render(EstimateShipping, {})(wrapper);
+            ctx.replaceWith(wrapper);
+          }
+        },
+        Coupons: (ctx) => {
+          const coupons = document.createElement('div');
+
+          provider.render(Coupons)(coupons);
+
+          ctx.appendChild(coupons);
+        },
+        GiftCards: (ctx) => {
+          const giftCards = document.createElement('div');
+
+          provider.render(GiftCards)(giftCards);
+
+          ctx.appendChild(giftCards);
+        },
+      },
     })($summary),
 
-    UI.render(Button, {
-      children: placeholders?.Global?.UpdateShoppingCart || 'Update Shopping Cart',
-      variant: 'secondary',
-      onClick: () => updateShoppingCart($list),
-    })($update),
+    provider.render(GiftOptions, {
+      view: 'order',
+      dataSource: 'cart',
 
-    provider.render(Coupons)($discount),
-
-    enableEstimateShipping === 'true'
-      ? provider.render(EstimateShipping, {})($estimateBody)
-      : Promise.resolve(),
+      slots: {
+        SwatchImage: swatchImageSlot,
+      },
+    })($giftOptions),
   ]);
 
-  if (enableEstimateShipping !== 'true') $estimate.hidden = true;
-
-  let cartViewEventPublished = false;
-
-  // New callback identity makes the drop-in re-run `updateLineItems`.
   const refreshOrderSummary = () => {
     orderSummary?.setProps((prev) => ({
       ...prev,
       updateLineItems: subscriptions.buildSummaryUpdater(),
     }));
-    window.requestAnimationFrame(() => polishSummary($summary, placeholders));
   };
 
-  const refreshCheckoutConfig = async (cartData) => {
-    try {
-      const changed = await subscriptions.refreshCheckoutConfig(cartData);
-      if (changed) refreshOrderSummary();
-    } catch (error) {
-      console.error('Error refreshing RecurBuy checkout config:', error);
-    }
-  };
-
-  const refreshSubscriptionDetails = async (items) => {
-    try {
-      await subscriptions.refreshDetails(items);
-      refreshOrderSummary();
-    } catch (error) {
-      console.error('Error syncing cart subscription details:', error);
-    }
-  };
-
+  let cartViewEventPublished = false;
   // Events
   events.on(
     'cart/data',
@@ -285,19 +320,25 @@ export default async function decorate(block) {
       toggleEmptyCart(isCartEmpty(cartData));
 
       const isEmpty = !cartData || cartData.totalQuantity < 1;
-      $rightColumn.hidden = isEmpty;
-      $update.hidden = isEmpty;
-      $discount.hidden = isEmpty;
-      $heading.hidden = isEmpty || hideHeading === 'true';
-      polishSummary($summary, placeholders);
+      $giftOptions.style.display = isEmpty ? 'none' : '';
+      $rightColumn.style.display = isEmpty ? 'none' : '';
 
       if (!cartViewEventPublished) {
         cartViewEventPublished = true;
         publishShoppingCartViewEvent();
       }
 
-      refreshSubscriptionDetails(cartData?.items);
-      refreshCheckoutConfig(cartData);
+      subscriptions.refreshDetails(cartData?.items).then(() => {
+        refreshOrderSummary();
+      }).catch((error) => {
+        console.error('Error syncing cart subscription details:', error);
+      });
+
+      subscriptions.refreshCheckoutConfig(cartData).then((changed) => {
+        if (changed) refreshOrderSummary();
+      }).catch((error) => {
+        console.error('Error refreshing RecurBuy checkout config:', error);
+      });
     },
     { eager: true },
   );
@@ -321,52 +362,16 @@ function isCartEmpty(cart) {
   return cart ? cart.totalQuantity < 1 : true;
 }
 
-/**
- * Applies quantities typed in the table, the way Luma's Update Shopping Cart does.
- * Lines already saved by the drop-in are left as they are.
- * @param {HTMLElement} list
- */
-async function updateShoppingCart(list) {
-  const cartItems = Cart.getCartDataFromCache()?.items || [];
-  const updates = [...list.querySelectorAll('.cart-cart-summary-table__cell-qty-input')]
-    .map((input) => {
-      const uid = input.id.replace('cart-table-item-quantity-', '');
-      const quantity = Number(input.value);
-      const current = cartItems.find((item) => item.uid === uid);
-      if (!current || !Number.isFinite(quantity) || quantity < 1) return null;
-      if (quantity === current.quantity) return null;
-      return { uid, quantity };
-    })
-    .filter(Boolean);
+function swatchImageSlot(ctx) {
+  const { imageSwatchContext, defaultImageProps } = ctx;
+  tryRenderAemAssetsImage(ctx, {
+    alias: imageSwatchContext.label,
+    imageProps: defaultImageProps,
+    wrapper: document.createElement('span'),
 
-  if (updates.length) {
-    await Cart.updateProductsFromCart(updates);
-    return;
-  }
-  if (typeof Cart.refreshCart === 'function') await Cart.refreshCart();
-}
-
-/**
- * Drop-in copy says "Order Summary", "Estimated Total" and "Checkout".
- * Luma uses Summary, Order Total and Proceed to Checkout.
- * @param {HTMLElement} summary
- * @param {Record<string, any>} placeholders
- */
-function polishSummary(summary, placeholders) {
-  const button = summary.querySelector('[data-testid="checkout-button"]');
-  if (button) {
-    button.textContent = placeholders?.Global?.ProceedToCheckout || 'Proceed to Checkout';
-  }
-
-  const discountLabel = document.querySelector('.cart__discount .dropin-accordion-section__title, .cart__discount button');
-  if (discountLabel && /discount code/i.test(discountLabel.textContent)) {
-    discountLabel.textContent = placeholders?.Global?.ApplyDiscountCode || 'Apply Discount Code';
-  }
-
-  summary.querySelectorAll('.cart-order-summary__label, [class*="cart-order-summary"] span, dt, div')
-    .forEach((node) => {
-      if (node.childNodes.length === 1 && node.textContent.trim() === 'Estimated Total') {
-        node.textContent = placeholders?.Global?.OrderTotal || 'Order Total';
-      }
-    });
+    params: {
+      width: defaultImageProps.width,
+      height: defaultImageProps.height,
+    },
+  });
 }

@@ -1,4 +1,5 @@
 import { RECURBUY_SUBSCRIPTION_OPTION_ID } from './contract.js';
+import { endsLabelFromPlanFacts } from './format.js';
 import { saveSelectionForSku } from './selection-store.js';
 
 /**
@@ -121,6 +122,7 @@ export const CartPayloadAdapter = {
     }
 
     const plan = options.selectedPlan;
+    const endsLabel = plan ? endsLabelFromPlanFacts(plan.facts) : '';
     const enrichedSelection = {
       ...selection,
       planSnapshot:
@@ -130,6 +132,7 @@ export const CartPayloadAdapter = {
             planLabel: plan.label,
             period: plan.period,
             price: plan.prices?.initial || plan.prices?.regular,
+            ...(endsLabel ? { endsLabel } : {}),
           }
           : undefined),
     };

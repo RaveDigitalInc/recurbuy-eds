@@ -21,6 +21,7 @@ import ProductShortDescription from '@dropins/storefront-pdp/containers/ProductS
 import ProductOptions from '@dropins/storefront-pdp/containers/ProductOptions.js';
 import ProductQuantity from '@dropins/storefront-pdp/containers/ProductQuantity.js';
 import ProductDescription from '@dropins/storefront-pdp/containers/ProductDescription.js';
+import ProductAttributes from '@dropins/storefront-pdp/containers/ProductAttributes.js';
 import ProductGallery from '@dropins/storefront-pdp/containers/ProductGallery.js';
 
 // Libs
@@ -32,7 +33,7 @@ import {
 import {
   mountProductDetailsSubscription,
   submitProductDetailsCart,
-} from '../../packages/recurbuy-storefront/src/extend/product-details.js';
+} from '@recurbuy/storefront-eds/extend/product-details.js';
 
 // Initializers
 import { IMAGES_SIZES } from '../../scripts/initializers/pdp.js';
@@ -95,10 +96,10 @@ export default async function decorate(block) {
             <div class="product-details__buttons__add-to-cart"></div>
             <div class="product-details__buttons__add-to-wishlist"></div>
           </div>
-          <!-- Below Add to Cart (plan selector stays above Color/Size). -->
           <div class="product-details__subscription-details"></div>
         </div>
         <div class="product-details__description"></div>
+        <div class="product-details__attributes"></div>
       </div>
     </div>
   `);
@@ -117,13 +118,13 @@ export default async function decorate(block) {
   const $addToCart = fragment.querySelector('.product-details__buttons__add-to-cart');
   const $wishlistToggleBtn = fragment.querySelector('.product-details__buttons__add-to-wishlist');
   const $description = fragment.querySelector('.product-details__description');
+  const $attributes = fragment.querySelector('.product-details__attributes');
 
   block.replaceChildren(fragment);
 
   let latestProductValid = true;
   /** @type {{ setProps: Function }|null} */
   let addToCartRef = null;
-  // RecurBuy Extend glue — package owns selector / price / AccS add path.
   const subscriptionController = mountProductDetailsSubscription({
     selectorRoot: $subscription,
     priceRoot: $subscriptionPrice,
@@ -132,10 +133,7 @@ export default async function decorate(block) {
     onChange: (_selection, meta) => {
       latestProductValid = meta.productValid;
       if (addToCartRef) {
-        addToCartRef.setProps((prev) => ({
-          ...prev,
-          disabled: !meta.productValid || !meta.selectionValid,
-        }));
+        updateAddToCartDisabled(addToCartRef, meta.productValid, subscriptionController);
       }
     },
   });
@@ -157,105 +155,7 @@ export default async function decorate(block) {
 
   // Alert
   let inlineAlert = null;
-  let noticeTimer = null;
   const routeToWishlist = '/wishlist';
-
-  // Cart notices are shown as a fixed toast so they never shift the page layout.
-  const NOTICE_VISIBLE_MS = 7000;
-  const NOTICE_EXIT_MS = 300;
-  let noticeToast = null;
-  let noticeRemaining = NOTICE_VISIBLE_MS;
-  let noticeStartedAt = 0;
-
-  const getToastHost = () => {
-    let host = document.querySelector('.product-details__toasts');
-    if (!host) {
-      host = document.createElement('div');
-      host.className = 'product-details__toasts';
-      document.body.appendChild(host);
-    }
-    return host;
-  };
-
-  const dismissCartNotice = () => {
-    if (noticeTimer) window.clearTimeout(noticeTimer);
-    noticeTimer = null;
-    const toast = noticeToast;
-    const alertInstance = inlineAlert;
-    noticeToast = null;
-    inlineAlert = null;
-    if (!toast) return;
-
-    toast.classList.remove('is-visible');
-    toast.classList.add('is-leaving');
-    window.setTimeout(() => {
-      alertInstance?.remove();
-      toast.remove();
-    }, NOTICE_EXIT_MS);
-  };
-
-  const startNoticeTimer = () => {
-    noticeStartedAt = Date.now();
-    noticeTimer = window.setTimeout(dismissCartNotice, noticeRemaining);
-  };
-
-  const showCartNotice = async ({ type, heading, description }) => {
-    // Replace any notice that is still on screen
-    if (noticeTimer) window.clearTimeout(noticeTimer);
-    noticeTimer = null;
-    inlineAlert?.remove();
-    noticeToast?.remove();
-
-    const toast = document.createElement('div');
-    toast.className = `product-details__toast product-details__toast--${type}`;
-    getToastHost().appendChild(toast);
-    noticeToast = toast;
-
-    const alertSlot = document.createElement('div');
-    toast.appendChild(alertSlot);
-
-    inlineAlert = await UI.render(InLineAlert, {
-      heading,
-      description,
-      type,
-      variant: 'primary',
-      icon: h(Icon, { source: type === 'success' ? 'CheckWithCircle' : 'Warning' }),
-      'aria-live': type === 'success' ? 'polite' : 'assertive',
-      role: type === 'success' ? 'status' : 'alert',
-      onDismiss: dismissCartNotice,
-    })(alertSlot);
-
-    if (type === 'success') {
-      const link = document.createElement('a');
-      link.className = 'product-details__toast-link';
-      link.href = rootLink('/cart');
-      link.textContent = labels.Global?.ViewCart || 'View cart';
-      toast.appendChild(link);
-    }
-
-    // Next frame so the browser registers the initial (hidden) state and animates in
-    window.requestAnimationFrame(() => toast.classList.add('is-visible'));
-
-    // Keep errors until dismissed; successes auto-hide and pause while hovered/focused
-    if (type === 'success') {
-      noticeRemaining = NOTICE_VISIBLE_MS;
-      startNoticeTimer();
-
-      const pause = () => {
-        if (!noticeTimer) return;
-        window.clearTimeout(noticeTimer);
-        noticeTimer = null;
-        noticeRemaining = Math.max(2000, noticeRemaining - (Date.now() - noticeStartedAt));
-      };
-      const resume = () => {
-        if (noticeToast === toast && !noticeTimer) startNoticeTimer();
-      };
-      toast.addEventListener('mouseenter', pause);
-      toast.addEventListener('mouseleave', resume);
-      toast.addEventListener('focusin', pause);
-      toast.addEventListener('focusout', resume);
-    }
-  };
 
   const [
     _galleryMobile,
@@ -266,6 +166,7 @@ export default async function decorate(block) {
     _options,
     _quantity,
     _description,
+    _attributes,
     wishlistToggleBtn,
   ] = await Promise.all([
     // Gallery (Mobile)
@@ -324,6 +225,9 @@ export default async function decorate(block) {
     // Description
     pdpRendered.render(ProductDescription, {})($description),
 
+    // Attributes
+    pdpRendered.render(ProductAttributes, {})($attributes),
+
     // Wishlist button - WishlistToggle Container
     wishlistRender.render(WishlistToggle, {
       product,
@@ -345,69 +249,61 @@ export default async function decorate(block) {
           disabled: true,
         }));
 
-        // Get current selection values from PDP API
         const values = pdpApi.getProductConfigurationValues();
         const valid = pdpApi.isProductConfigurationValid();
         const selectionValid = subscriptionController.isSelectionValid();
         const productData = events.lastPayload('pdp/data') ?? product;
 
-        if (!valid || !selectionValid) {
-          await showCartNotice({
-            type: 'error',
-            heading: labels.Global?.AddToCartError || 'Could not add to cart',
-            description: labels.Global?.SelectRequiredOptions
-              || 'Select the required options before adding this product to the cart.',
+        if (valid && selectionValid) {
+          await submitProductDetailsCart({
+            values: values || { sku: productData?.sku, quantity: 1 },
+            selection: subscriptionController.getSelection(),
+            productData: productData || product,
+            mode: isUpdateMode ? 'update' : 'add',
+            itemUid: itemUidFromUrl,
           });
-          return;
-        }
 
-        const selection = subscriptionController.getSelection();
-        const result = await submitProductDetailsCart({
-          values: values || { sku: productData?.sku, quantity: 1 },
-          selection,
-          productData: productData || product,
-          mode: isUpdateMode ? 'update' : 'add',
-          itemUid: itemUidFromUrl,
-        });
-
-        if (isUpdateMode) {
-          const cartRedirectUrl = new URL(
-            rootLink('/cart'),
-            window.location.origin,
-          );
-          if (result.cartItem?.sku) {
-            cartRedirectUrl.searchParams.set('itemUid', itemUidFromUrl);
+          if (isUpdateMode) {
+            const updatedSku = values?.sku || productData?.sku;
+            if (updatedSku) {
+              const cartRedirectUrl = new URL(
+                rootLink('/cart'),
+                window.location.origin,
+              );
+              cartRedirectUrl.searchParams.set('itemUid', itemUidFromUrl);
+              window.location.href = cartRedirectUrl.toString();
+            } else {
+              console.warn(
+                'Could not retrieve SKU for updated item. Redirecting to cart without parameter.',
+              );
+              window.location.href = rootLink('/cart');
+            }
+            return;
           }
-          window.location.href = cartRedirectUrl.toString();
-          return;
         }
 
-        if (!result.ok) {
-          throw new Error(
-            labels.Global?.AddToCartErrorDescription
-              || 'The product could not be added to the cart.',
-          );
-        }
-
-        const addedMessage = (
-          labels.Global?.AddedToCartMessage || '{product} was added to your cart.'
-        ).replace('{product}', result.productName);
-
-        await showCartNotice({
-          type: 'success',
-          heading: labels.Global?.AddedToCart || 'Added to cart',
-          description: addedMessage,
-        });
+        // reset any previous alerts if successful
+        inlineAlert?.remove();
       } catch (error) {
-        const rawMessage = error instanceof Error ? error.message : String(error);
-        await showCartNotice({
-          type: 'error',
-          heading: labels.Global?.AddToCartError || 'Could not add to cart',
-          description: rawMessage.replace(/^\[RecurBuy\]\s*/, '')
-            || labels.Global?.AddToCartErrorDescription
-            || 'The product could not be added to the cart.',
+        // add alert message
+        inlineAlert = await UI.render(InLineAlert, {
+          heading: 'Error',
+          description: error.message,
+          icon: h(Icon, { source: 'Warning' }),
+          'aria-live': 'assertive',
+          role: 'alert',
+          onDismiss: () => {
+            inlineAlert.remove();
+          },
+        })($alert);
+
+        // Scroll the alertWrapper into view
+        $alert.scrollIntoView({
+          behavior: 'smooth',
+          block: 'center',
         });
       } finally {
+        // Reset button text using the helper function which respects the current mode
         updateAddToCartButtonText(addToCart, isUpdateMode, labels);
         updateAddToCartDisabled(
           addToCart,
@@ -427,10 +323,15 @@ export default async function decorate(block) {
     updateAddToCartDisabled(addToCart, valid, subscriptionController);
   }, { eager: true });
 
+  // Handle option changes
   events.on('pdp/values', () => {
     if (wishlistToggleBtn) {
       const configValues = pdpApi.getProductConfigurationValues();
+
+      // Check URL parameter for empty optionsUIDs
       const urlOptionsUIDs = urlParams.get('optionsUIDs');
+
+      // If URL has empty optionsUIDs parameter, treat as base product (no options)
       const optionUIDs = urlOptionsUIDs === '' ? undefined : (configValues?.optionsUIDs || undefined);
 
       wishlistToggleBtn.setProps((prev) => ({
@@ -462,6 +363,7 @@ export default async function decorate(block) {
     }, 0);
   });
 
+  // --- Add new event listener for cart/data ---
   events.on(
     'cart/data',
     (cartData) => {
@@ -471,7 +373,10 @@ export default async function decorate(block) {
           (item) => item.uid === itemUidFromUrl,
         );
       }
+      // Set the update mode state
       isUpdateMode = itemIsInCart;
+
+      // Update button text based on whether the item is in the cart
       updateAddToCartButtonText(addToCart, itemIsInCart, labels);
     },
     { eager: true },
@@ -504,6 +409,7 @@ async function setJsonLdProduct(product) {
   const amount = priceRange?.minimum?.final?.amount || price?.final?.amount;
   const brand = attributes.find((attr) => attr.name === 'brand');
 
+  // get variants
   const { data } = await pdpApi.fetchGraphQl(`
     query GET_PRODUCT_VARIANTS($sku: String!) {
       variants(sku: $sku) {
@@ -612,17 +518,21 @@ function setMetaTags(product) {
   const metaImage = mainImage?.url || product?.images[0]?.url;
   createMetaTag('og:image', metaImage, 'property');
   createMetaTag('og:image:secure_url', metaImage, 'property');
-  if (price) {
-    createMetaTag('product:price:amount', price.value, 'property');
-    createMetaTag('product:price:currency', price.currency, 'property');
-  }
+  createMetaTag('product:price:amount', price.value, 'property');
+  createMetaTag('product:price:currency', price.currency, 'property');
 }
 
+/**
+ * Returns the configuration for an image slot.
+ * @param ctx - The context of the slot.
+ * @returns The configuration for the image slot.
+ */
 function imageSlotConfig(ctx) {
   const { data, defaultImageProps } = ctx;
   return {
     alias: data.sku,
     imageProps: defaultImageProps,
+
     params: {
       width: defaultImageProps.width,
       height: defaultImageProps.height,

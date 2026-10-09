@@ -18,15 +18,7 @@ import '../../scripts/initializers/cart.js';
 
 import { readBlockConfig } from '../../scripts/aem.js';
 import { fetchPlaceholders, rootLink } from '../../scripts/commerce.js';
-
-import { appendCartProductAttributesSlot } from '../../scripts/helpers/cart-product-attributes-slot.js';
-import {
-  paintMiniCartSubscriptionPrices,
-  syncCartSubscriptionDetails,
-  fetchCartItemSubscriptionDetails,
-  renderCartSubscriptionDetails,
-  clearCartSubscriptionDetails,
-} from '../../scripts/subscriptions/index.js';
+import { createCartSubscriptionSession } from '@recurbuy/storefront-eds/extend/cart.js';
 
 export default async function decorate(block) {
   const {
@@ -49,8 +41,11 @@ export default async function decorate(block) {
   let currentModal = null;
   let currentCartNotification = null;
 
-  const subscriptionDetailsByUid = new Map();
-  const subscriptionRootsByUid = new Map();
+  let latestCartItems = [];
+  const subscriptions = createCartSubscriptionSession({
+    getCartItems: () => latestCartItems,
+  });
+  const subscriptionSlots = subscriptions.createMiniCartSlots();
 
   // Create a container for the update message
   const updateMessage = document.createElement('div');
@@ -144,54 +139,19 @@ export default async function decorate(block) {
     }
   }
 
-  let latestCartItems = [];
-
-  const paintSubscriptionPrices = () => {
-    const paint = () => paintMiniCartSubscriptionPrices(latestCartItems, subscriptionDetailsByUid);
-    paint();
-    requestAnimationFrame(() => {
-      paint();
-      requestAnimationFrame(paint);
-    });
-  };
-
-  const applySubscriptionPrices = () => {
-    paintSubscriptionPrices();
-  };
-
-  const refreshSubscriptionDetails = async (items) => {
-    latestCartItems = items || [];
-    try {
-      const next = await syncCartSubscriptionDetails(items, subscriptionDetailsByUid);
-      subscriptionDetailsByUid.clear();
-      next.forEach((details, uid) => {
-        subscriptionDetailsByUid.set(uid, details);
-        const root = subscriptionRootsByUid.get(uid);
-        if (root) renderCartSubscriptionDetails(root, details, { variant: 'mini' });
-      });
-      subscriptionRootsByUid.forEach((root, uid) => {
-        if (!next.has(uid)) clearCartSubscriptionDetails(root);
-      });
-      paintSubscriptionPrices();
-    } catch (error) {
-      console.error('Error syncing cart subscription details:', error);
-    }
-  };
-
   // Add event listeners for cart updates
-  events.on(
-    'cart/data',
-    (cartData) => {
-      refreshSubscriptionDetails(cartData?.items);
-    },
-    { eager: true },
-  );
   events.on('cart/product/added', () => showMessage(MESSAGES.ADDED), {
     eager: true,
   });
   events.on('cart/product/updated', () => showMessage(MESSAGES.UPDATED), {
     eager: true,
   });
+  events.on('cart/data', (cartData) => {
+    latestCartItems = cartData?.items || [];
+    subscriptions.refreshDetails(latestCartItems, { variant: 'mini' }).catch((error) => {
+      console.error('Error syncing cart subscription details:', error);
+    });
+  }, { eager: true });
 
   // Prevent mini cart from closing when undo is enabled
   if (undo === 'true') {
@@ -222,6 +182,8 @@ export default async function decorate(block) {
     undo: undo === 'true',
 
     slots: {
+      ...subscriptionSlots,
+
       Thumbnail: (ctx) => {
         const { item, defaultImageProps } = ctx;
         const anchorWrapper = document.createElement('a');
@@ -257,45 +219,7 @@ export default async function decorate(block) {
           ctx.appendChild(editLinkContainer);
         }
       },
-      ItemPrice: () => {
-        applySubscriptionPrices();
-      },
-
-      ItemTotal: () => {
-        applySubscriptionPrices();
-      },
-
-      ProductAttributes: (ctx) => {
-        const { item } = ctx;
-        const uid = item?.uid;
-
-        appendCartProductAttributesSlot(ctx, item, { format: 'cart' });
-
-        // Dedicated container for subscription metadata to avoid layout collisions
-        const subscriptionRoot = document.createElement('div');
-        subscriptionRoot.className = 'cart-subscription-details cart-subscription-details--compact';
-        ctx.appendChild(subscriptionRoot);
-        if (uid) subscriptionRootsByUid.set(uid, subscriptionRoot);
-
-        // Render synchronously from cache if available
-        const cachedDetails = uid ? subscriptionDetailsByUid.get(uid) : null;
-        if (cachedDetails) {
-          renderCartSubscriptionDetails(subscriptionRoot, cachedDetails, { variant: 'mini' });
-          return;
-        }
-
-        // Fallback async fetch with node connectivity check
-        const details = fetchCartItemSubscriptionDetails(item);
-        if (details && uid) {
-          subscriptionDetailsByUid.set(uid, details);
-          renderCartSubscriptionDetails(subscriptionRoot, details, { variant: 'mini' });
-          applySubscriptionPrices(uid, details);
-        } else {
-          clearCartSubscriptionDetails(subscriptionRoot);
-        }
-      },
     },
-
   })(block);
 
   // Find the products container and add the message div at the top

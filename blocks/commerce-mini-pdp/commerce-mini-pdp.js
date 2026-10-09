@@ -24,13 +24,11 @@ import {
   fetchPlaceholders,
   commerceEndpointWithQueryParams,
 } from '../../scripts/commerce.js';
-
 import {
-  CartPayloadAdapter,
-  mountSubscriptionOnPdp,
-} from '../../scripts/subscriptions/index.js';
-import { getSelectionForCartItem } from '../../scripts/subscriptions/selection-store.js';
-import { updateCartItemWithSubscription } from '../../scripts/subscriptions/subscription-add-to-cart.js';
+  mountProductDetailsSubscription,
+  resolveCartItemInitialSelection,
+  submitProductDetailsCart,
+} from '@recurbuy/storefront-eds/extend/product-details.js';
 
 import { loadCSS } from '../../scripts/aem.js';
 
@@ -159,32 +157,28 @@ export default async function createMiniPDP(cartItem, onUpdate, onClose) {
       '.mini-pdp__buttons__redirect-to-pdp',
     );
 
+    // State management
+    let isLoading = false;
+    let inlineAlert = null;
     let latestProductValid = true;
     /** @type {{ setProps: Function }|null} */
     let updateButtonRef = null;
-    let isLoading = false;
 
-    const storedSelection = getSelectionForCartItem(cartItem);
-    const initialSelection = storedSelection || { purchaseType: 'one_time' };
-
-    const subscriptionController = mountSubscriptionOnPdp({
+    const subscriptionController = mountProductDetailsSubscription({
       selectorRoot: $subscription,
       priceRoot: $subscriptionPrice,
       productPriceRoot: $price,
       scope: 'modal',
-      initialSelection,
+      initialSelection: resolveCartItemInitialSelection(cartItem),
       onChange: (_selection, meta) => {
         latestProductValid = meta.productValid;
-        if (!updateButtonRef) return;
+        if (!updateButtonRef || isLoading) return;
         updateButtonRef.setProps((prev) => ({
           ...prev,
-          disabled: !meta.productValid || !meta.selectionValid || isLoading,
+          disabled: !meta.productValid || !meta.selectionValid,
         }));
       },
     });
-
-    // State management
-    let inlineAlert = null;
 
     // Render components
     const [
@@ -234,37 +228,26 @@ export default async function createMiniPDP(cartItem, onUpdate, onClose) {
               disabled: true,
             }));
 
-            // Get current product configuration
             const values = pdpApi.getProductConfigurationValues({ scope: 'modal' });
             const valid = pdpApi.isProductConfigurationValid({ scope: 'modal' });
 
-            if (!valid) {
+            if (!valid || !subscriptionController.isSelectionValid()) {
               throw new Error('Please select all required options');
             }
 
-            const catalogProductId = product?.externalId || product?.id;
-            const selection = subscriptionController.getSelection();
-            const cartItemData = CartPayloadAdapter.enrich(
+            const { cartItem: updateData } = await submitProductDetailsCart({
               values,
-              selection,
-              {
-                parentSku: sku,
-                selectedPlan: selection?.selectedPlan,
+              selection: subscriptionController.getSelection(),
+              productData: {
+                sku,
+                externalId: product?.externalId || product?.id,
+                name: product?.name,
               },
-            );
-            const updateData = {
-              ...cartItemData,
-              sku: cartItemData.sku || sku,
-            };
-
-            const updateResponse = await updateCartItemWithSubscription({
-              cartItem: updateData,
+              mode: 'update',
               itemUid: cartItem.uid,
-              selection,
-              catalogProductId,
             });
 
-            events.emit('cart/updated', updateResponse);
+            events.emit('cart/updated', updateData);
 
             inlineAlert?.remove();
 

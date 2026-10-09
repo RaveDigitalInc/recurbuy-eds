@@ -1,11 +1,20 @@
-import { RECURBUY_SUBSCRIPTION_OPTION_ID } from './contract.js';
+import {
+  RECURBUY_BILLING_PERIOD,
+  RECURBUY_ENDS_LABEL,
+  RECURBUY_PLAN_LABEL,
+  RECURBUY_SUBSCRIPTION_OPTION_ID,
+  RECURBUY_SUBSCRIPTION_START_DATE,
+} from './contract.js';
 
-/** Stored on the quote line; subscription UI derives details elsewhere. */
-export const RECURBUY_SUBSCRIPTION_START_DATE = 'recurbuy_subscription_start_date';
+export { RECURBUY_SUBSCRIPTION_START_DATE };
 
+/** Internal quote markers — not shown in the product attributes slot. */
 const HIDDEN_CART_LINE_ATTRIBUTE_CODES = new Set([
   RECURBUY_SUBSCRIPTION_OPTION_ID,
   RECURBUY_SUBSCRIPTION_START_DATE,
+  RECURBUY_PLAN_LABEL,
+  RECURBUY_BILLING_PERIOD,
+  RECURBUY_ENDS_LABEL,
 ]);
 
 /**

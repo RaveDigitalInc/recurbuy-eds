@@ -50,17 +50,6 @@
 
 #mini-pdp-modal .mini-pdp__left-column {
     grid-column: 1 / span 4;
-    min-width: 0;
-}
-
-#mini-pdp-modal .mini-pdp__left-column .pdp-carousel {
-    max-height: 32rem;
-}
-
-#mini-pdp-modal .mini-pdp__left-column .pdp-carousel__slide img {
-    object-fit: contain;
-    width: 100%;
-    height: 100%;
 }
 
 #mini-pdp-modal .mini-pdp__right-column {
@@ -126,37 +115,6 @@
     color: inherit;
 }
 
-#mini-pdp-modal .mini-pdp__price[hidden] {
-    display: none;
-}
-
-#mini-pdp-modal .mini-pdp__subscription-price {
-    grid-column: 1 / span 4;
-    margin-top: var(--spacing-xsmall);
-    margin-bottom: var(--spacing-small);
-    color: var(--color-neutral-800);
-}
-
-#mini-pdp-modal .mini-pdp__subscription-price:empty,
-#mini-pdp-modal .mini-pdp__subscription-price[hidden] {
-    display: none;
-}
-
-#mini-pdp-modal .mini-pdp__subscription {
-    grid-column: 1 / span 4;
-    margin-top: var(--spacing-small);
-}
-
-#mini-pdp-modal .mini-pdp__subscription:empty,
-#mini-pdp-modal .mini-pdp__subscription[hidden],
-#mini-pdp-modal .mini-pdp__subscription .subscription-selector[hidden] {
-    display: none;
-}
-
-#mini-pdp-modal .mini-pdp__subscription-price .subscription-price-box {
-    margin-top: 0;
-}
-
 #mini-pdp-modal .mini-pdp__quantity-label {
     font: var(--type-details-caption-1-font);
     letter-spacing: var(--type-details-caption-1-letter-spacing);
@@ -183,7 +141,7 @@
 
 @media (min-width: 768px) {
     #mini-pdp-modal .mini-pdp__wrapper {
-        grid-template-columns: repeat(var(--grid-2-columns), minmax(0, 1fr));
+        grid-template-columns: repeat(var(--grid-2-columns), 1fr);
         grid-gap: var(--grid-2-gutters) var(--grid-2-gutters);
     }
 
@@ -198,28 +156,14 @@
         margin-top: calc(var(--spacing-xsmall) * -1);
     }
 
-    #mini-pdp-modal .mini-pdp__subscription-price {
-        grid-column: 1 / -1;
-        grid-row: 3;
-        margin-top: 0;
-        margin-bottom: 0;
-    }
-
-    #mini-pdp-modal .mini-pdp__subscription {
-        grid-column: 1 / -1;
-        grid-row: 4;
-        margin-top: var(--spacing-xsmall);
-        margin-bottom: var(--spacing-small);
-    }
-
     #mini-pdp-modal .mini-pdp__left-column {
         grid-column: 1 / span 6;
-        grid-row: 5;
+        grid-row: 3;
     }
 
     #mini-pdp-modal .mini-pdp__right-column {
         grid-column: 7 / span 6;
-        grid-row: 5;
+        grid-row: 3;
         display: flex;
         flex-direction: column;
         gap: var(--spacing-medium);
@@ -229,7 +173,7 @@
 
     #mini-pdp-modal .mini-pdp__buttons {
         grid-column: 1 / -1;
-        grid-row: 6;
+        grid-row: 4;
         margin-top: var(--spacing-small);
     }
 

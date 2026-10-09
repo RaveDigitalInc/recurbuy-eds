@@ -14,6 +14,7 @@ import {
   selectionStateFromAccsOptionUids,
 } from './bundle-price.js';
 import { SUBSCRIPTION_ERROR_CODES } from './contract.js';
+import { endsLabelFromPlanFacts } from './format.js';
 import {
   clearSubscriptionPriceBox,
   renderSubscriptionPriceBox,
@@ -478,6 +479,9 @@ export function mountSubscriptionOnPdp({
       || null;
 
     const price = selectedPlan?.prices?.initial || selectedPlan?.prices?.regular;
+    const endsLabel = selectedPlan
+      ? endsLabelFromPlanFacts(selectedPlan.facts)
+      : '';
 
     return {
       purchaseType: 'subscription',
@@ -488,6 +492,7 @@ export function mountSubscriptionOnPdp({
         planLabel: selectedPlan.label,
         period: selectedPlan.period,
         price,
+        ...(endsLabel ? { endsLabel } : {}),
       } : undefined,
       customOptionValues: { ...(selection.customOptionValues || {}) },
     };

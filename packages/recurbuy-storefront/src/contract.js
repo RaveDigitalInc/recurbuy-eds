@@ -122,5 +122,20 @@ export const SUBSCRIPTION_ERROR_CODES = {
   SERVER: 'SUBSCRIPTION_SERVER_ERROR',
 };
 
-/** Magento cart item attribute the price webhook reads. */
+/** Magento cart item attribute the price webhook / place-after reads. */
 export const RECURBUY_SUBSCRIPTION_OPTION_ID = 'recurbuy_subscription_option_id';
+
+/** Optional start date on the quote line (`YYYY-MM-DD`). */
+export const RECURBUY_SUBSCRIPTION_START_DATE = 'recurbuy_subscription_start_date';
+
+/**
+ * Storefront presentation on the quote (AccS `setCustomAttributesOnCartItem`).
+ * Cart / mini-cart read these from GraphQL `custom_attributes` — not sessionStorage.
+ */
+export const RECURBUY_PLAN_LABEL = 'recurbuy_plan_label';
+
+/** Serialized period: `{value}|{unit}` e.g. `1|month`, `2|week`. */
+export const RECURBUY_BILLING_PERIOD = 'recurbuy_billing_period';
+
+/** Magento “Subscription End Date” value, e.g. `Cancel Anytime`. */
+export const RECURBUY_ENDS_LABEL = 'recurbuy_ends_label';

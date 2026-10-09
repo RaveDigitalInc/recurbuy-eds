@@ -1,10 +1,11 @@
 /**
- * Client-side subscription selection store.
- * Used when Commerce cart GraphQL has not yet returned line custom attributes
- * (see cart-line-custom-attributes.js) or for plan snapshots before refresh.
+ * In-memory optimistic selection cache for the current document only.
+ * Quote `custom_attributes` are the source of truth for cart / mini-cart;
+ * this map covers the brief gap between add and the GraphQL quote read.
+ * Nothing is written to sessionStorage / localStorage.
  */
 
-const STORAGE_KEY = 'recurbuy.subscription.selections';
+const LEGACY_SESSION_KEY = 'recurbuy.subscription.selections';
 
 /**
  * @typedef {import('./contract.js').SubscriptionSelection & {
@@ -13,41 +14,29 @@ const STORAGE_KEY = 'recurbuy.subscription.selections';
  *     period?: import('./contract.js').SubscriptionPeriod,
  *     price?: import('./contract.js').MoneyAmount,
  *     startDate?: string,
+ *     endsLabel?: string,
  *   }
  * }} SubscriptionSelection
  */
 
 /**
- * @returns {{
+ * @type {{
  *   bySku: Record<string, SubscriptionSelection>,
  *   byUid: Record<string, SubscriptionSelection>,
  * }}
  */
-function readStore() {
-  try {
-    const raw = window.sessionStorage.getItem(STORAGE_KEY);
-    if (!raw) return { bySku: {}, byUid: {} };
-    const parsed = JSON.parse(raw);
-    return {
-      bySku: parsed?.bySku && typeof parsed.bySku === 'object' ? parsed.bySku : {},
-      byUid: parsed?.byUid && typeof parsed.byUid === 'object' ? parsed.byUid : {},
-    };
-  } catch {
-    return { bySku: {}, byUid: {} };
-  }
-}
+const store = { bySku: {}, byUid: {} };
+
+purgeLegacySessionStorage();
 
 /**
- * @param {{
- *   bySku: Record<string, SubscriptionSelection>,
- *   byUid: Record<string, SubscriptionSelection>,
- * }} store
+ * Drop the old sessionStorage blob so prior tabs do not keep a second SoR.
  */
-function writeStore(store) {
+function purgeLegacySessionStorage() {
   try {
-    window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+    window.sessionStorage?.removeItem(LEGACY_SESSION_KEY);
   } catch {
-    // Ignore quota / private mode failures; cart will simply hide subscription details.
+    // private mode / blocked storage
   }
 }
 
@@ -75,18 +64,17 @@ export function saveSelectionForUid(uid, selection) {
 function persistSelection(bucket, key, selection) {
   if (!key) return;
 
-  const store = readStore();
   if (!selection || selection.purchaseType !== 'subscription' || !selection.planId) {
     delete store[bucket][key];
-  } else {
-    store[bucket][key] = {
-      purchaseType: 'subscription',
-      planId: selection.planId,
-      customOptionValues: { ...(selection.customOptionValues || {}) },
-      ...(selection.planSnapshot && { planSnapshot: { ...selection.planSnapshot } }),
-    };
+    return;
   }
-  writeStore(store);
+
+  store[bucket][key] = {
+    purchaseType: 'subscription',
+    planId: selection.planId,
+    customOptionValues: { ...(selection.customOptionValues || {}) },
+    ...(selection.planSnapshot && { planSnapshot: { ...selection.planSnapshot } }),
+  };
 }
 
 /**
@@ -95,7 +83,6 @@ function persistSelection(bucket, key, selection) {
  */
 export function linkSelectionUid(sku, uid) {
   if (!sku || !uid) return;
-  const store = readStore();
   const selection = store.bySku[sku];
   if (!selection || selection.purchaseType !== 'subscription') return;
   const existing = store.byUid[uid];
@@ -108,7 +95,6 @@ export function linkSelectionUid(sku, uid) {
     return;
   }
   store.byUid[uid] = { ...selection };
-  writeStore(store);
 }
 
 /**
@@ -122,7 +108,6 @@ export function linkSelectionUid(sku, uid) {
 export function getSelectionForCartItem(item) {
   if (!item) return null;
 
-  const store = readStore();
   if (item.uid && store.byUid[item.uid]) {
     return store.byUid[item.uid];
   }
@@ -149,16 +134,11 @@ export function getSelectionForCartItem(item) {
  * @param {Array<{ uid?: string }>|null|undefined} items
  */
 export function pruneSelectionsToCartItems(items) {
-  const store = readStore();
   const liveUids = new Set((items || []).map((item) => item?.uid).filter(Boolean));
-  let changed = false;
 
   Object.keys(store.byUid).forEach((uid) => {
     if (!liveUids.has(uid)) {
       delete store.byUid[uid];
-      changed = true;
     }
   });
-
-  if (changed) writeStore(store);
 }

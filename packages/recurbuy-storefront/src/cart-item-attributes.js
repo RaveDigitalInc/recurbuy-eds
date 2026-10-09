@@ -1,5 +1,12 @@
 import { fetchGraphQl } from '@dropins/storefront-cart/api.js';
-import { RECURBUY_SUBSCRIPTION_OPTION_ID } from './contract.js';
+import {
+  RECURBUY_BILLING_PERIOD,
+  RECURBUY_ENDS_LABEL,
+  RECURBUY_PLAN_LABEL,
+  RECURBUY_SUBSCRIPTION_OPTION_ID,
+  RECURBUY_SUBSCRIPTION_START_DATE,
+} from './contract.js';
+import { serializeSubscriptionPeriod } from './format.js';
 
 const SET_CUSTOM_ATTRIBUTES_MUTATION = `
   mutation SetCustomAttributesOnCartItem($input: CartItemCustomAttributesInput!) {
@@ -106,17 +113,31 @@ export function findItemUid(cart, sku, parentSku) {
 
 /**
  * Sets RecurBuy subscription custom attributes on a cart item via GraphQL.
+ * Option id is required for place-after; plan label / period / ends live on the
+ * quote so cart and mini-cart read presentation without sessionStorage.
  *
  * @param {string} cartId Masked Commerce cart ID
  * @param {string} itemUid GraphQL item UID (e.g., "MjE1")
  * @param {number|string} optionId RecurBuy subscription option ID
- * @param {string} [startDate] Optional subscription start date (YYYY-MM-DD)
+ * @param {string|{
+ *   startDate?: string,
+ *   planLabel?: string,
+ *   period?: import('./contract.js').SubscriptionPeriod,
+ *   endsLabel?: string,
+ * }} [startDateOrPresentation] YYYY-MM-DD string (legacy) or presentation bag
  * @returns {Promise<Object>} GraphQL response data
  */
-export async function setSubscriptionAttributes(cartId, itemUid, optionId, startDate) {
+export async function setSubscriptionAttributes(
+  cartId,
+  itemUid,
+  optionId,
+  startDateOrPresentation,
+) {
   if (!cartId || !itemUid || !optionId) {
     throw new Error('[RecurBuy] Missing required parameters for setSubscriptionAttributes.');
   }
+
+  const presentation = normalizePresentation(startDateOrPresentation);
 
   const customAttributes = [
     {
@@ -125,12 +146,14 @@ export async function setSubscriptionAttributes(cartId, itemUid, optionId, start
     },
   ];
 
-  if (startDate) {
-    customAttributes.push({
-      attribute_code: 'recurbuy_subscription_start_date',
-      value: String(startDate),
-    });
-  }
+  pushAttribute(customAttributes, RECURBUY_SUBSCRIPTION_START_DATE, presentation.startDate);
+  pushAttribute(customAttributes, RECURBUY_PLAN_LABEL, presentation.planLabel);
+  pushAttribute(
+    customAttributes,
+    RECURBUY_BILLING_PERIOD,
+    serializeSubscriptionPeriod(presentation.period),
+  );
+  pushAttribute(customAttributes, RECURBUY_ENDS_LABEL, presentation.endsLabel);
 
   const response = await fetchGraphQl(SET_CUSTOM_ATTRIBUTES_MUTATION, {
     variables: {
@@ -143,6 +166,57 @@ export async function setSubscriptionAttributes(cartId, itemUid, optionId, start
   });
 
   return readGraphQlData(response, 'setting custom attributes');
+}
+
+/**
+ * @param {string|{
+ *   startDate?: string,
+ *   planLabel?: string,
+ *   period?: import('./contract.js').SubscriptionPeriod,
+ *   endsLabel?: string,
+ * }|null|undefined} value
+ * @returns {{
+ *   startDate: string,
+ *   planLabel: string,
+ *   period: import('./contract.js').SubscriptionPeriod|null,
+ *   endsLabel: string,
+ * }}
+ */
+function normalizePresentation(value) {
+  if (typeof value === 'string') {
+    return {
+      startDate: value.trim(),
+      planLabel: '',
+      period: null,
+      endsLabel: '',
+    };
+  }
+
+  if (!value || typeof value !== 'object') {
+    return {
+      startDate: '',
+      planLabel: '',
+      period: null,
+      endsLabel: '',
+    };
+  }
+
+  return {
+    startDate: typeof value.startDate === 'string' ? value.startDate.trim() : '',
+    planLabel: typeof value.planLabel === 'string' ? value.planLabel.trim() : '',
+    period: value.period && typeof value.period === 'object' ? value.period : null,
+    endsLabel: typeof value.endsLabel === 'string' ? value.endsLabel.trim() : '',
+  };
+}
+
+/**
+ * @param {Array<{ attribute_code: string, value: string }>} list
+ * @param {string} code
+ * @param {string} value
+ */
+function pushAttribute(list, code, value) {
+  if (typeof value !== 'string' || value.trim() === '') return;
+  list.push({ attribute_code: code, value: value.trim() });
 }
 
 /**

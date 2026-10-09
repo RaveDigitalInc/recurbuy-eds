@@ -1,10 +1,13 @@
 /**
  * Thin Extend glue for the Product Details block.
- * Merchant keeps Adobe PDP containers; RecurBuy owns selector / price / add path.
+ * Merchant keeps Adobe PDP containers and alerts; RecurBuy owns selector / price / AccS add.
  */
 
+import { getSubscriptionOptionIdFromCartItem } from '../cart-line-custom-attributes.js';
 import { CartPayloadAdapter } from '../cart-payload-adapter.js';
+import { ensureRecurBuyStyles } from '../helpers/ensure-styles.js';
 import { mountSubscriptionOnPdp } from '../mount-pdp.js';
+import { getSelectionForCartItem } from '../selection-store.js';
 import {
   addToCartWithSubscription,
   updateCartItemWithSubscription,
@@ -22,6 +25,8 @@ import {
  * Mount RecurBuy subscription UI into merchant-provided DOM roots.
  *
  * @param {ProductDetailsSubscriptionRoots & {
+ *   scope?: string,
+ *   initialSelection?: import('../contract.js').SubscriptionSelection,
  *   onChange?: (selection: unknown, meta: {
  *     productValid: boolean,
  *     selectionValid: boolean,
@@ -30,7 +35,33 @@ import {
  * @returns {ReturnType<typeof mountSubscriptionOnPdp>}
  */
 export function mountProductDetailsSubscription(options) {
+  ensureRecurBuyStyles();
   return mountSubscriptionOnPdp(options);
+}
+
+/**
+ * Initial PDP / mini-PDP selection from quote customFields (durable) or
+ * same-document optimistic cache.
+ *
+ * @param {{
+ *   uid?: string,
+ *   sku?: string,
+ *   topLevelSku?: string,
+ *   customFields?: Record<string, unknown>,
+ * }|null|undefined} cartItem
+ * @returns {import('../contract.js').SubscriptionSelection}
+ */
+export function resolveCartItemInitialSelection(cartItem) {
+  const optionIdFromQuote = getSubscriptionOptionIdFromCartItem(cartItem);
+  if (optionIdFromQuote) {
+    return {
+      purchaseType: 'subscription',
+      planId: optionIdFromQuote,
+      subscriptionOptionId: optionIdFromQuote,
+    };
+  }
+
+  return getSelectionForCartItem(cartItem) || { purchaseType: 'one_time' };
 }
 
 /**

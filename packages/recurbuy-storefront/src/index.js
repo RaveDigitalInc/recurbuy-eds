@@ -1,5 +1,9 @@
 export {
+  RECURBUY_BILLING_PERIOD,
+  RECURBUY_ENDS_LABEL,
+  RECURBUY_PLAN_LABEL,
   RECURBUY_SUBSCRIPTION_OPTION_ID,
+  RECURBUY_SUBSCRIPTION_START_DATE,
   SUBSCRIPTION_ERROR_CODES,
 } from './contract.js';
 export { CartPayloadAdapter } from './cart-payload-adapter.js';
@@ -64,6 +68,7 @@ export { createSubscriptionSummaryUpdater } from './cart-order-summary.js';
 // Extend glue (merchant blocks should prefer these entry points)
 export {
   mountProductDetailsSubscription,
+  resolveCartItemInitialSelection,
   submitProductDetailsCart,
 } from './extend/product-details.js';
 export { createCartSubscriptionSession } from './extend/cart.js';

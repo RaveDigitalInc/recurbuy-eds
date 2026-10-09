@@ -115,8 +115,17 @@ async function registerPendingSubscription(cartId, sku, selection, catalogProduc
  * @param {number} quantity
  */
 async function persistSubscriptionLine(cartId, itemUid, subscriptionOptionId, selection, quantity) {
-  const startDate = selection?.startDate || selection?.subscriptionStartDate;
-  await setSubscriptionAttributes(cartId, itemUid, subscriptionOptionId, startDate);
+  const snapshot = selection?.planSnapshot || {};
+  const startDate = selection?.startDate
+    || selection?.subscriptionStartDate
+    || snapshot.startDate;
+
+  await setSubscriptionAttributes(cartId, itemUid, subscriptionOptionId, {
+    startDate,
+    planLabel: snapshot.planLabel,
+    period: snapshot.period,
+    endsLabel: snapshot.endsLabel,
+  });
   await nudgeQuantity(cartId, itemUid, quantity || 1);
 }
 
