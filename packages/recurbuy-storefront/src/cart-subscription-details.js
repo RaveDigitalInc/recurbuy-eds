@@ -7,9 +7,7 @@ import { isPlaceholderPlanLabel } from './adapters/storefront-cart-items-mapper.
 import { formatBillingCycle, formatMoney } from './format.js';
 import {
   getSelectionForCartItem,
-  linkSelectionUid,
   pruneSelectionsToCartItems,
-  saveSelectionForSku,
   saveSelectionForUid,
 } from './selection-store.js';
 import { getSubscriptionStartDateFromCartItem } from './cart-line-custom-attributes.js';
@@ -197,10 +195,8 @@ async function runCartSubscriptionSync(items, detailsByUid) {
     if (details) {
       rememberQuoteSelection(entry.item, details);
       next.set(entry.item.uid, details);
-    } else if (entry.item.sku) {
-      linkSelectionUid(entry.item.sku, entry.item.uid);
-      next.delete(entry.item.uid);
     } else {
+      // One-time (or unmarked) line — do not copy a prior bySku plan onto this uid.
       next.delete(entry.item.uid);
     }
   });
@@ -234,10 +230,9 @@ function rememberQuoteSelection(item, details) {
     },
   };
 
+  // Quote attrs are SoR; only bind the line uid so a later one-time add of the
+  // same SKU is not painted from bySku.
   if (item.uid) saveSelectionForUid(item.uid, selection);
-  const sku = typeof item.sku === 'string' ? item.sku.trim() : '';
-  const parent = typeof item.topLevelSku === 'string' ? item.topLevelSku.trim() : '';
-  if (sku && sku !== parent) saveSelectionForSku(sku, selection);
 }
 
 /**
@@ -269,7 +264,7 @@ function mergeQuoteDetailsWithSnapshot(quoteDetails, optimistic) {
  */
 async function resolveCommerceCartId() {
   try {
-    const cartApi = await import('@dropins/storefront-cart-impl/api.js');
+    const cartApi = await import('@dropins/storefront-cart/api.js');
     const cachedCart = cartApi.getCartDataFromCache?.();
     const cartId = cartApi.config?.cartId || cachedCart?.id;
     return typeof cartId === 'string' && cartId.trim() ? cartId.trim() : null;

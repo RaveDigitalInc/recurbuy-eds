@@ -65,13 +65,25 @@ export {
 } from './adapters/storefront-checkout-success-mapper.js';
 export { createSubscriptionSummaryUpdater } from './cart-order-summary.js';
 
-// Extend glue (merchant blocks should prefer these entry points)
+// Public library API — prefer these from the package root or ./extend/* shims.
 export {
+  attachPdpSubscription,
+  createCartActionValidityBridge,
   mountProductDetailsSubscription,
   resolveCartItemInitialSelection,
+  setCartActionDisabled,
+  submitMiniPdpCartUpdate,
   submitProductDetailsCart,
+  submitProductDetailsCartIfValid,
 } from './extend/product-details.js';
-export { createCartSubscriptionSession } from './extend/cart.js';
+export {
+  createCartSubscriptionSession,
+  createCheckoutProductAttributesSlot,
+} from './extend/cart.js';
 export { createCartModelCustomAttributesTransformer } from './extend/initializer.js';
 export { appendCartProductAttributesSlot } from './helpers/cart-product-attributes-slot.js';
-export { registerCartApiMiddleware } from './extend/cart-api-middleware.js';
+export {
+  addToCartWithSubscription,
+  updateCartItemWithSubscription,
+} from './subscription-add-to-cart.js';
+export { getShopperAuthToken } from './auth.js';

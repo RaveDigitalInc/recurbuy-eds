@@ -1,5 +1,5 @@
+import { getShopperAuthToken } from '../auth.js';
 import { getValidSubscriptionConfig, getSubscriptionTimeoutMs } from '../config.js';
-import { getUserTokenCookie } from '../../../../scripts/initializers/index.js';
 
 /**
  * Posts pending subscription add payload to the RecurBuy storefront checkout API.
@@ -38,7 +38,7 @@ export async function postPendingSubscriptionAdd({
     'X-RecurBuy-Connection-Token': config.connectionToken,
   };
 
-  const userToken = getUserTokenCookie();
+  const userToken = getShopperAuthToken();
   if (userToken) {
     headers.Authorization = `Bearer ${userToken}`;
   }

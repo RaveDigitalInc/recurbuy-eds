@@ -1,142 +1,85 @@
 # `@recurbuy/storefront-eds`
 
-RecurBuy subscription UI and AccS glue for **Adobe Commerce Storefront (EDS)**.
+RecurBuy **subscription library** for Adobe Commerce Storefront (EDS).
 
-Adobe model ([Getting started](https://experienceleague.adobe.com/en/tools/commerce-storefront/get-started/)): merchant keeps Adobe PDP/Cart drop-ins; RecurBuy **extends** them. This package is the RecurBuy side.
-
-**Status (branch `feature/recurbuy-npm-extend-glue`):** local `file:` package inside `recurbuy-eds`. Not published to npm registry yet. Merchant install today = copy package + thin block wiring (below).
-
----
-
-## Architecture (how it works)
-
-```
-Shopper browser (EDS)
-  │
-  ├─ Adobe drop-ins (@dropins/storefront-pdp, storefront-cart, …)
-  │     GraphQL → Adobe Commerce AccS
-  │
-  ├─ Merchant blocks (product-details, commerce-cart, …)
-  │     thin glue only: mount roots + slots + call extend API
-  │
-  └─ @recurbuy/storefront-eds
-        │
-        ├─ UI: plan selector, price box, cart line details
-        ├─ AccS price timing: POST pending-subscription-add  BEFORE  addProductsToCart
-        ├─ Markers: setCustomAttributesOnCartItem AFTER add
-        └─ HTTPS → RecurBuy panel  /api/recurbuy/storefront/*
-                    (subscription-config, options-list, pending-add, …)
-```
-
-### Why AccS needs RecurBuy panel + pending-add
-
-On Adobe Commerce as a Cloud Service:
-
-1. `addProductsToCart` **cannot** carry `recurbuy_subscription_option_id` via `entered_options` (only real catalog option UIDs).
-2. Price webhook `sales_quote_item_save_before` runs **during** Magento add — **before** cart item custom attributes exist.
-3. Therefore EDS must call  
-   `POST /api/recurbuy/storefront/checkout/pending-subscription-add`  
-   **before** GraphQL add, so the panel’s quote-item-price webhook can apply plan %.
-4. After add, EDS sets cart item custom attributes for place-after **and** cart UI:
-   `recurbuy_subscription_option_id`, optional `recurbuy_subscription_start_date`,
-   plus presentation `recurbuy_plan_label` / `recurbuy_billing_period` / `recurbuy_ends_label`.
-   Cart and mini-cart read those from the quote GraphQL (no sessionStorage SoR).
-
-RecurBuy does **not** replace Adobe PDP/Cart. It only marks the line and prices via webhooks.
-
-### Package layout
-
-| Path | Role |
-|------|------|
-| `src/extend/product-details.js` | Merchant PDP glue API |
-| `src/extend/cart.js` | Merchant Cart glue API |
-| `src/extend/initializer.js` | Cart drop-in transformer (custom attributes) |
-| `src/mount-pdp.js`, `subscription-*.js`, `adapters/*` | Internal implementation |
-| `scripts/subscriptions/*` (repo shim) | Re-exports for older relative imports |
-
-### Runtime config (browser)
-
-Keys under `config.json` → `public.default`:
-
-| Key | Meaning |
-|-----|---------|
-| `subscriptions-storefront-url` | RecurBuy panel base URL (no trailing slash) |
-| `subscriptions-connection-token` | Connection public token (`Connection.token`) |
-| `subscriptions-store-id` | Panel store id (`tenant_connection_stores.id`) |
-| `subscriptions-website-id` | Optional |
-| `subscriptions-timeout-ms` | Optional (default 30000) |
-
-Do **not** commit real tokens. Keep local `config.json` gitignored; ship `config.example.json` only.
-
----
-
-## Merchant install
-
-### Prerequisites
-
-1. Adobe Commerce Storefront boilerplate (EDS) with PDP + Cart drop-ins working.
-2. RecurBuy panel: Connection for that Magento, store created, subscription options on products.
-3. AccS webhooks pointed at the **public** panel URL (price / place-before / place-after). Local EDS can talk to `http://127.0.0.1:8080`; Magento AccS cannot — webhooks need HTTPS tunnel or staging.
-
-### 1. Add the package
-
-**Today (monorepo / copy):**
-
-```bash
-# option A — this repo already has:
-#   packages/recurbuy-storefront
-npm install file:packages/recurbuy-storefront
-
-# option B — copy packages/recurbuy-storefront into merchant EDS repo
-# then same npm install file:…
-```
-
-**Later (when published):**
+Install as an npm package, import from merchant blocks / initializers, call APIs where subscriptions are used. The package does **not** remap, wrap, or replace `@dropins/*`.
 
 ```bash
 npm install @recurbuy/storefront-eds
+# today (monorepo / unpublished):
+npm install file:packages/recurbuy-storefront
 ```
+
+---
+
+## Mental model
+
+| Layer | Owns |
+|-------|------|
+| Adobe drop-ins | PDP, cart, GraphQL to AccS |
+| Merchant EDS blocks | DOM roots, alerts, redirects, `events.on(…)` |
+| **This package** | Plan UI, AccS pending-add, cart-item attrs, cart line paint |
+
+```
+Merchant block
+  │  import { attachPdpSubscription, submitProductDetailsCartIfValid } from '@recurbuy/storefront-eds'
+  │  import { addProductsToCart } from '@dropins/storefront-cart/api.js'   ← Adobe, untouched
+  └─ @recurbuy/storefront-eds
+        pending-add (only when plan selected) → Adobe add → setCustomAttributes
+        HTTPS → RecurBuy panel /api/recurbuy/storefront/*
+```
+
+**No pending-add ⇒ price webhook treats the line as one-time / catalog.**
+
+AccS has no before-add event hook. Pending-add must run via an explicit library call on Add/Update (not an import-map intercept).
+
+---
+
+## Install in an EDS storefront
+
+### 1. Dependency
+
+```bash
+npm install @recurbuy/storefront-eds
+# or: npm install file:./vendor/recurbuy-storefront
+```
+
+Peer deps (already in Adobe boilerplate): `@dropins/storefront-cart`, `@dropins/storefront-pdp`, `@dropins/tools`.
 
 ### 2. Import map (`head.html`)
 
+EDS serves ESM from the site root. Map the package to its **served** location (no Adobe remaps):
+
 ```json
-/* local file: package (this repo) */
+/* published npm / node_modules */
+"@recurbuy/storefront-eds/": "/node_modules/@recurbuy/storefront-eds/",
+"@recurbuy/storefront-eds": "/node_modules/@recurbuy/storefront-eds/src/index.js"
+
+/* this monorepo (file: package) */
 "@recurbuy/storefront-eds/": "/packages/recurbuy-storefront/",
-"@recurbuy/storefront-eds": "/packages/recurbuy-storefront/src/index.js",
-
-/* Cart API extension host: blocks keep @dropins/storefront-cart/api.js imports.
-   Adobe implementation is aliased so the facade can call it without recursion. */
-"@dropins/storefront-cart-impl/": "/scripts/__dropins__/storefront-cart/",
-"@dropins/storefront-cart/api.js": "/packages/recurbuy-storefront/extend/cart-api.js"
+"@recurbuy/storefront-eds": "/packages/recurbuy-storefront/src/index.js"
 ```
 
-(Adjust path if the package lives under `node_modules` and you vendor/copy sources for EDS static serving.)
+### 3. Config (`config.json` → `public.default`)
 
-### 3. Config
+| Key | Required | Meaning |
+|-----|----------|---------|
+| `subscriptions-storefront-url` | yes | RecurBuy panel base URL |
+| `subscriptions-connection-token` | yes | `Connection.token` |
+| `subscriptions-store-id` | yes | Panel store id |
+| `subscriptions-website-id` | no | |
+| `subscriptions-timeout-ms` | no | default `30000` |
 
-```json
-{
-  "public": {
-    "default": {
-      "subscriptions-storefront-url": "https://<recurbuy-panel-host>",
-      "subscriptions-connection-token": "<Connection.token>",
-      "subscriptions-store-id": "<panel_store_id>"
-    }
-  }
-}
-```
+Do not commit real tokens.
 
-Local panel example: `http://127.0.0.1:8080`. After changing config, clear `sessionStorage` key `config` (EDS caches config ~2h).
+### 4. Wire call sites (thin glue)
 
-### 4. Cart initializer (required)
-
-In `scripts/initializers/cart.js`, register the cart model transformer so GraphQL `custom_attributes` reach the drop-in:
+**Cart initializer** — so GraphQL `custom_attributes` reach the drop-in:
 
 ```js
-import { createCartModelCustomAttributesTransformer } from '@recurbuy/storefront-eds/extend/initializer.js';
-import { config, initialize, setFetchGraphQlHeaders } from '@dropins/storefront-cart/api.js';
+import { createCartModelCustomAttributesTransformer } from '@recurbuy/storefront-eds';
+// or: …/extend/initializer.js
 
-// inside initialize mount:
 models: {
   CartModel: {
     transformer: createCartModelCustomAttributesTransformer(config),
@@ -144,130 +87,112 @@ models: {
 },
 ```
 
-### 5. Product details block (required)
-
-1. Add DOM roots in the block layout (names can vary; pass the elements into the API):
-
-   - subscription selector
-   - subscription price
-   - optional: subscription details
-   - keep Adobe product price node if you hide it when a plan is selected
-
-2. Glue:
+**PDP** — mount UI + call library on Add/Update:
 
 ```js
 import {
-  mountProductDetailsSubscription,
-  submitProductDetailsCart,
-} from '@recurbuy/storefront-eds/extend/product-details.js';
+  attachPdpSubscription,
+  submitProductDetailsCartIfValid,
+} from '@recurbuy/storefront-eds';
 
-const subscriptionController = mountProductDetailsSubscription({
+const pdpSubscription = attachPdpSubscription({
   selectorRoot: $subscription,
   priceRoot: $subscriptionPrice,
   productPriceRoot: $price,
   detailsRoot: $subscriptionDetails,
-  onChange: (_selection, meta) => {
-    // disable Add to Cart when !meta.selectionValid || !meta.productValid
-  },
 });
 
-// Keep the original Adobe import — do not replace with a vendor path:
-const { addProductsToCart } = await import('@dropins/storefront-cart/api.js');
-await addProductsToCart([{ ...values }]);
+pdpSubscription.bindCartButton(addToCart);
+events.on('pdp/valid', pdpSubscription.onProductValid, { eager: true });
+
+const { submitted } = await submitProductDetailsCartIfValid({
+  configurationValid: pdpApi.isProductConfigurationValid(),
+  subscriptionController: pdpSubscription,
+  values: pdpApi.getProductConfigurationValues(),
+  productData: events.lastPayload('pdp/data'),
+  mode: isUpdateMode ? 'update' : 'add',
+  itemUid,
+});
 ```
 
-Import map routes `@dropins/storefront-cart/api.js` through the package facade.
-Subscription AccS logic registers as middleware (`registerCartApiMiddleware`).
-Other vendors add their own middleware with a unique `id` — no block import changes.
-
-### 6. Cart block (required)
+**Cart / mini-cart** — slots + Adobe `cart/data`:
 
 ```js
-import { createCartSubscriptionSession } from '@recurbuy/storefront-eds/extend/cart.js';
+import { createCartSubscriptionSession } from '@recurbuy/storefront-eds';
 import * as Cart from '@dropins/storefront-cart/api.js';
 
 const subscriptions = createCartSubscriptionSession({
   getCartItems: () => Cart.getCartDataFromCache()?.items || [],
-  labels: {
-    payNow: placeholders?.Global?.YouPayNow,
-    chargedFor: placeholders?.Global?.YouWillBeChargedFor,
-  },
+  labels: { /* … */ },
 });
 
 provider.render(CartSummaryList, {
-  slots: {
-    ...subscriptions.createSummarySlots(), // ItemPrice, ItemTotal, ProductAttributes
-    // merchant Thumbnail / Footer stay here
-  },
+  slots: { ...subscriptions.createSummarySlots() },
 })($list);
 
-provider.render(OrderSummary, {
-  updateLineItems: subscriptions.buildSummaryUpdater(),
-})($summary);
-
-events.on('cart/data', async (cartData) => {
-  await subscriptions.refreshDetails(cartData?.items);
-  await subscriptions.refreshCheckoutConfig(cartData);
-}, { eager: true });
+events.on('cart/data', (cartData) => subscriptions.syncFromCartData(cartData), { eager: true });
 ```
 
-### 7. Optional surfaces
+Also keep Adobe’s official `overrideGQLOperations` fragment for cart `custom_attributes` in the storefront `build.mjs` (host build tool — not this package).
 
-| Surface | Status on this branch |
-|---------|------------------------|
-| Mini-cart | `createMiniCartSlots()` + `refreshDetails(..., { variant: 'mini' })` |
-| Checkout product attributes | Helper `appendCartProductAttributesSlot` (subscription line attrs) |
-| Checkout success profiles | Adapters in package (`fetchCheckoutSuccessProfiles`) — wire when needed |
+---
+
+## Public API
+
+Prefer the **package root** (`@recurbuy/storefront-eds`). Subpaths under `./extend/*` are stable aliases for the same modules.
+
+| Export | Role |
+|--------|------|
+| `attachPdpSubscription` / `mountProductDetailsSubscription` | Mount plan UI on PDP / mini-PDP |
+| `submitProductDetailsCartIfValid` / `submitProductDetailsCart` | AccS-safe add/update |
+| `submitMiniPdpCartUpdate` | Mini-PDP update |
+| `addToCartWithSubscription` / `updateCartItemWithSubscription` | Lower-level AccS helpers |
+| `createCartSubscriptionSession` | Cart / mini-cart slots + refresh |
+| `createCheckoutProductAttributesSlot` | Checkout line attrs |
+| `createCartModelCustomAttributesTransformer` | Cart drop-in transformer |
+| `getValidSubscriptionConfig` / config getters | Read EDS config keys |
+| `getShopperAuthToken` | AccS customer JWT cookie (optional Bearer) |
+
+Internals under `src/adapters/*`, `src/mount-pdp.js`, etc. are not a stability contract.
+
+---
+
+## Library rules (do / don’t)
+
+| Do | Don’t |
+|----|--------|
+| `npm install` + import + call | Remap `@dropins/storefront-cart/api.js` to this package |
+| Keep Adobe cart/PDP imports as Adobe ships them | Relative-import host `scripts/` from this package |
+| Listen to Adobe `events` for UI refresh | Fork Adobe drop-in packages for RecurBuy |
+| Call submit helpers only where Add/Update runs | Expect zero block edits |
+
+This package is **self-contained**: no imports of the merchant repo (`scripts/`, `blocks/`). It only depends on peer `@dropins/*` and the browser.
+
+---
+
+## AccS pricing (why pending-add)
+
+1. GraphQL `addProductsToCart` cannot carry RecurBuy option ids in `entered_options`.
+2. Magento `sales_quote_item_save_before` runs **during** add — before cart item custom attributes exist.
+3. Library posts `POST …/pending-subscription-add` **before** Adobe add when a plan is selected.
+4. After add, library sets cart item custom attributes for place-after + cart UI.
 
 ---
 
 ## Merchant checklist
 
-- [ ] Package present (`packages/recurbuy-storefront` or npm)
-- [ ] Import map (if using `@recurbuy/…` aliases)
-- [ ] `config.json` keys set; not committed with secrets
-- [ ] Cart initializer transformer registered
-- [ ] PDP: DOM roots + `mountProductDetailsSubscription` + `submitProductDetailsCart`
-- [ ] Cart: `createCartSubscriptionSession` + summary slots + `cart/data` refresh
-- [ ] Panel Connection + store + product subscription options
-- [ ] AccS webhooks → **public** panel URL (price / place)
-- [ ] Smoke: PDP plan → cart shows plan price → place creates profile
+- [ ] `npm install` / `file:` dependency
+- [ ] Import map → package root (not Adobe remaps)
+- [ ] Config keys set
+- [ ] Cart initializer transformer
+- [ ] PDP: roots + `attachPdpSubscription` + submit helper
+- [ ] Cart: `createCartSubscriptionSession` + `cart/data`
+- [ ] Panel Connection + AccS webhooks (public URL)
+- [ ] Smoke: plan add → plan price in cart → one-time same SKU stays catalog
 
 ---
 
-## What the merchant does **not** do
+## Related panel docs (SaaS repo)
 
-- Do not put RecurBuy ids in GraphQL `entered_options`.
-- Do not fork Adobe drop-in packages to inject subscription logic.
-- Do not expect `npm install` alone with zero block edits — EDS always needs block glue (same as Adobe drop-ins).
-
----
-
-## Reference APIs (extend)
-
-### `mountProductDetailsSubscription(options)`
-
-Mounts selector + price + details. Returns controller with `getSelection()`, `isSelectionValid()`, …
-
-### `submitProductDetailsCart({ values, selection, productData, mode, itemUid })`
-
-Add or update cart with AccS-safe RecurBuy flow. Returns `{ ok, cartItem, productName }`.
-
-### `createCartSubscriptionSession({ getCartItems, labels })`
-
-Returns:
-
-- `createSummarySlots()` → `{ Price, Subtotal, Configurations }`
-- `buildSummaryUpdater()` for OrderSummary
-- `refreshDetails(items)` / `refreshCheckoutConfig(cartData)`
-
-### `createCartModelCustomAttributesTransformer(cartConfig)`
-
-Cart initializer transformer for line `custom_attributes`.
-
----
-
-## Related panel docs
-
-- AccS add-to-cart contract: `docs/recurbuy/storefront-accs-drop-in-addtocart.md` (SaaS repo)
+- AccS add-to-cart: `docs/recurbuy/storefront-accs-drop-in-addtocart.md`
 - Storefront HTTP API: `docs/recurbuy/storefront-api.md`

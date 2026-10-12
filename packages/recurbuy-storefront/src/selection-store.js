@@ -108,8 +108,11 @@ export function linkSelectionUid(sku, uid) {
 export function getSelectionForCartItem(item) {
   if (!item) return null;
 
-  if (item.uid && store.byUid[item.uid]) {
-    return store.byUid[item.uid];
+  // Cart lines always have a uid. Never fall back to bySku — that snapshot is
+  // from the last plan add of this SKU and would paint a later one-time line
+  // (or another uid of the same SKU) as a subscription.
+  if (item.uid) {
+    return store.byUid[item.uid] || null;
   }
 
   if (item.sku && store.bySku[item.sku]) {

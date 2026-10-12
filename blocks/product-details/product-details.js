@@ -23,7 +23,10 @@ import ProductQuantity from '@dropins/storefront-pdp/containers/ProductQuantity.
 import ProductDescription from '@dropins/storefront-pdp/containers/ProductDescription.js';
 import ProductAttributes from '@dropins/storefront-pdp/containers/ProductAttributes.js';
 import ProductGallery from '@dropins/storefront-pdp/containers/ProductGallery.js';
-import { attachPdpSubscription } from '@recurbuy/storefront-eds/extend/product-details.js';
+import {
+  attachPdpSubscription,
+  submitProductDetailsCartIfValid,
+} from '@recurbuy/storefront-eds/extend/product-details.js';
 
 // Libs
 import {
@@ -226,44 +229,33 @@ export default async function decorate(block) {
           disabled: true,
         }));
 
-        // get the current selection values
         const values = pdpApi.getProductConfigurationValues();
-        const valid = pdpApi.isProductConfigurationValid()
-          && pdpSubscription.isSelectionValid();
+        const productData = events.lastPayload('pdp/data') ?? product;
+        const { submitted, result } = await submitProductDetailsCartIfValid({
+          configurationValid: pdpApi.isProductConfigurationValid(),
+          subscriptionController: pdpSubscription,
+          values,
+          productData,
+          mode: isUpdateMode ? 'update' : 'add',
+          itemUid: itemUidFromUrl,
+        });
 
-        // add or update the product in the cart
-        if (valid) {
-          if (isUpdateMode) {
-            // --- Update existing item ---
-            const { updateProductsFromCart } = await import(
-              '@dropins/storefront-cart/api.js'
+        if (submitted && isUpdateMode) {
+          const updatedSku = result?.cartItem?.sku || values?.sku;
+          if (updatedSku) {
+            const cartRedirectUrl = new URL(
+              rootLink('/cart'),
+              window.location.origin,
             );
-
-            await updateProductsFromCart([{ ...values, uid: itemUidFromUrl }]);
-
-            // --- START REDIRECT ON UPDATE ---
-            const updatedSku = values?.sku;
-            if (updatedSku) {
-              const cartRedirectUrl = new URL(
-                rootLink('/cart'),
-                window.location.origin,
-              );
-              cartRedirectUrl.searchParams.set('itemUid', itemUidFromUrl);
-              window.location.href = cartRedirectUrl.toString();
-            } else {
-              // Fallback if SKU is somehow missing (shouldn't happen in normal flow)
-              console.warn(
-                'Could not retrieve SKU for updated item. Redirecting to cart without parameter.',
-              );
-              window.location.href = rootLink('/cart');
-            }
-            return;
+            cartRedirectUrl.searchParams.set('itemUid', itemUidFromUrl);
+            window.location.href = cartRedirectUrl.toString();
+          } else {
+            console.warn(
+              'Could not retrieve SKU for updated item. Redirecting to cart without parameter.',
+            );
+            window.location.href = rootLink('/cart');
           }
-          // --- Add new item ---
-          const { addProductsToCart } = await import(
-            '@dropins/storefront-cart/api.js'
-          );
-          await addProductsToCart([{ ...values }]);
+          return;
         }
 
         // reset any previous alerts if successful

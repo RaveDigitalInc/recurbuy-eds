@@ -19,6 +19,7 @@ import ProductQuantity from '@dropins/storefront-pdp/containers/ProductQuantity.
 import {
   attachPdpSubscription,
   resolveCartItemInitialSelection,
+  submitMiniPdpCartUpdate,
 } from '@recurbuy/storefront-eds/extend/product-details.js';
 
 // Initializers
@@ -217,33 +218,18 @@ export default async function createMiniPDP(cartItem, onUpdate, onClose) {
               disabled: true,
             }));
 
-            // Get current product configuration
             const values = pdpApi.getProductConfigurationValues({ scope: 'modal' });
-            const valid = pdpApi.isProductConfigurationValid({ scope: 'modal' })
-              && pdpSubscription.isSelectionValid();
+            const updateData = await submitMiniPdpCartUpdate({
+              configurationValid: pdpApi.isProductConfigurationValid({ scope: 'modal' }),
+              subscriptionController: pdpSubscription,
+              values,
+              product,
+              sku,
+              cartItem,
+            });
 
-            if (!valid) {
-              throw new Error('Please select all required options');
-            }
-
-            // Update cart item with new configuration
-            const updateData = {
-              uid: cartItem.uid,
-              quantity: values.quantity || cartItem.quantity,
-              ...(values.optionsUIDs
-                && values.optionsUIDs.length > 0 && {
-                optionsUIDs: values.optionsUIDs,
-              }),
-              sku: values.sku || sku,
-            };
-
-            const { updateProductsFromCart } = await import(
-              '@dropins/storefront-cart/api.js'
-            );
-            const updateResponse = await updateProductsFromCart([updateData]);
-
-            // Trigger cart refresh to ensure UI updates
-            events.emit('cart/updated', updateResponse);
+            const { getCartData } = await import('@dropins/storefront-cart/api.js');
+            events.emit('cart/updated', await getCartData());
 
             inlineAlert?.remove();
 

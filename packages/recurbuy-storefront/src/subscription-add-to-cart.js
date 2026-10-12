@@ -4,7 +4,7 @@ import {
   createGuestCart,
   refreshCart,
   updateProductsFromCart as adobeUpdateProductsFromCart,
-} from '@dropins/storefront-cart-impl/api.js';
+} from '@dropins/storefront-cart/api.js';
 import { postPendingSubscriptionAdd } from './adapters/storefront-pending-add-adapter.js';
 import {
   findItemUid,
@@ -74,7 +74,7 @@ export async function resolveCartId() {
  * @param {number|string} catalogProductId
  * @returns {Promise<string|number>}
  */
-async function registerPendingSubscription(cartId, sku, selection, catalogProductId, parentSku) {
+async function registerPendingSubscription(cartId, sku, selection, catalogProductId) {
   const subscriptionOptionId = resolveSubscriptionOptionId(selection);
 
   if (!USE_PENDING_SUBSCRIPTION_ADD) {
@@ -85,24 +85,15 @@ async function registerPendingSubscription(cartId, sku, selection, catalogProduc
     throw new Error('[RecurBuy] Missing catalogProductId required for pending subscription add.');
   }
 
+  // One pending row (sku + catalog_product_id index). AccS child SKU saves match via
+  // product id; do not also register parent SKU — a leftover sibling pending would
+  // price a later one-time add as a plan (no pending ⇒ one-time).
   await postPendingSubscriptionAdd({
     cartId,
     sku,
     subscriptionOptionId,
     catalogProductId,
   });
-
-  // AccS configurable: add may use parent SKU while save_before webhook sends child SKU.
-  // Duplicate pending under parent so either key can be consumed (SaaS also indexes by product id).
-  const normalizedParent = typeof parentSku === 'string' ? parentSku.trim() : '';
-  if (normalizedParent && normalizedParent !== String(sku).trim()) {
-    await postPendingSubscriptionAdd({
-      cartId,
-      sku: normalizedParent,
-      subscriptionOptionId,
-      catalogProductId,
-    });
-  }
 
   return subscriptionOptionId;
 }
@@ -144,6 +135,7 @@ export async function addToCartWithSubscription({
   addProductsToCart: addFn = adobeAddProductsToCart,
 }) {
   if (!isSubscriptionSelection(selection)) {
+    // No pending-add ⇒ price webhook treats the line as one-time / catalog.
     return addFn([cartItem]);
   }
 
@@ -154,7 +146,6 @@ export async function addToCartWithSubscription({
     cartItem.sku,
     selection,
     catalogProductId,
-    cartItem.parentSku,
   );
 
   const addResult = await addFn([cartItem]);
@@ -352,7 +343,6 @@ export async function updateCartItemWithSubscription({
       cartItem.sku,
       selection,
       catalogProductId,
-      cartItem.parentSku,
     )
     : null;
 
