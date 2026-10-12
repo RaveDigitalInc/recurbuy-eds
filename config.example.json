@@ -13,11 +13,11 @@
           "Magento-Website-Code": "base"
         }
       },
-      "subscriptions-storefront-url": "https://saas-panel.staging-box.net",
-      "subscriptions-connection-token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOjQyLCJzdWIiOjEwNSwiaWF0IjoxNzg5OTgyMTM5fQ.SD9t17KnOg-S-azEvQj97j4aw9Dh1iAGY0Vp9xZ2F1s",
-      "subscriptions-store-id": "140",
+      "subscriptions-storefront-url": "https://YOUR_RECURBUY_PANEL_HOST",
+      "subscriptions-connection-token": "YOUR_CONNECTION_TOKEN",
+      "subscriptions-store-id": "YOUR_PANEL_STORE_ID",
       "subscriptions-website-id": "",
-      "subscriptions-timeout-ms": 10000,
+      "subscriptions-timeout-ms": 30000,
       "plugins": {
         "picker": {
           "rootCategory": "2"
