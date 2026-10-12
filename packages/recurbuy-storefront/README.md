@@ -87,13 +87,10 @@ models: {
 },
 ```
 
-**PDP** — mount UI + call library on Add/Update:
+**PDP** — mount UI (additive) + thin AccS hooks around **native** Adobe cart calls:
 
 ```js
-import {
-  attachPdpSubscription,
-  submitProductDetailsCartIfValid,
-} from '@recurbuy/storefront-eds';
+import { attachPdpSubscription } from '@recurbuy/storefront-eds';
 
 const pdpSubscription = attachPdpSubscription({
   selectorRoot: $subscription,
@@ -105,14 +102,27 @@ const pdpSubscription = attachPdpSubscription({
 pdpSubscription.bindCartButton(addToCart);
 events.on('pdp/valid', pdpSubscription.onProductValid, { eager: true });
 
-const { submitted } = await submitProductDetailsCartIfValid({
-  configurationValid: pdpApi.isProductConfigurationValid(),
-  subscriptionController: pdpSubscription,
-  values: pdpApi.getProductConfigurationValues(),
-  productData: events.lastPayload('pdp/data'),
-  mode: isUpdateMode ? 'update' : 'add',
-  itemUid,
-});
+// Keep Adobe imports — only insert prepare / finalize around them:
+const values = pdpApi.getProductConfigurationValues();
+const valid = pdpApi.isProductConfigurationValid()
+  && pdpSubscription.isSelectionValid();
+
+if (valid) {
+  const prepared = await pdpSubscription.prepareCartItem(values, {
+    productData: events.lastPayload('pdp/data'),
+    mode: isUpdateMode ? 'update' : 'add',
+    itemUid,
+  });
+
+  const { addProductsToCart, updateProductsFromCart } = await import(
+    '@dropins/storefront-cart/api.js'
+  );
+  const cartResult = isUpdateMode
+    ? await updateProductsFromCart([prepared.cartItem])
+    : await addProductsToCart([prepared.cartItem]);
+
+  await prepared.finalize({ cartResult, itemUid });
+}
 ```
 
 **Cart / mini-cart** — slots + Adobe `cart/data`:
@@ -143,10 +153,10 @@ Prefer the **package root** (`@recurbuy/storefront-eds`). Subpaths under `./exte
 
 | Export | Role |
 |--------|------|
-| `attachPdpSubscription` / `mountProductDetailsSubscription` | Mount plan UI on PDP / mini-PDP |
-| `submitProductDetailsCartIfValid` / `submitProductDetailsCart` | AccS-safe add/update |
-| `submitMiniPdpCartUpdate` | Mini-PDP update |
-| `addToCartWithSubscription` / `updateCartItemWithSubscription` | Lower-level AccS helpers |
+| `attachPdpSubscription` / `mountProductDetailsSubscription` | Mount plan UI; `prepareCartItem` for AccS hooks |
+| `prepareSubscriptionCartItem` | Low-level prepare → Adobe → `finalize` |
+| `submitProductDetailsCart*` / `submitMiniPdpCartUpdate` | Optional one-shot helpers (not required) |
+| `addToCartWithSubscription` / `updateCartItemWithSubscription` | Convenience wrappers |
 | `createCartSubscriptionSession` | Cart / mini-cart slots + refresh |
 | `createCheckoutProductAttributesSlot` | Checkout line attrs |
 | `createCartModelCustomAttributesTransformer` | Cart drop-in transformer |
@@ -162,9 +172,9 @@ Internals under `src/adapters/*`, `src/mount-pdp.js`, etc. are not a stability c
 | Do | Don’t |
 |----|--------|
 | `npm install` + import + call | Remap `@dropins/storefront-cart/api.js` to this package |
-| Keep Adobe cart/PDP imports as Adobe ships them | Relative-import host `scripts/` from this package |
+| Keep Adobe `addProductsToCart` / `updateProductsFromCart` | Relative-import host `scripts/` from this package |
+| Insert `prepareCartItem` + `finalize` around those calls | Replace the Adobe cart call with a RecurBuy-only API |
 | Listen to Adobe `events` for UI refresh | Fork Adobe drop-in packages for RecurBuy |
-| Call submit helpers only where Add/Update runs | Expect zero block edits |
 
 This package is **self-contained**: no imports of the merchant repo (`scripts/`, `blocks/`). It only depends on peer `@dropins/*` and the browser.
 
@@ -185,7 +195,7 @@ This package is **self-contained**: no imports of the merchant repo (`scripts/`,
 - [ ] Import map → package root (not Adobe remaps)
 - [ ] Config keys set
 - [ ] Cart initializer transformer
-- [ ] PDP: roots + `attachPdpSubscription` + submit helper
+- [ ] PDP: roots + `attachPdpSubscription` + `prepareCartItem` / `finalize` around Adobe cart
 - [ ] Cart: `createCartSubscriptionSession` + `cart/data`
 - [ ] Panel Connection + AccS webhooks (public URL)
 - [ ] Smoke: plan add → plan price in cart → one-time same SKU stays catalog

@@ -6,6 +6,7 @@ import {
   updateProductsFromCart as adobeUpdateProductsFromCart,
 } from '@dropins/storefront-cart/api.js';
 import { postPendingSubscriptionAdd } from './adapters/storefront-pending-add-adapter.js';
+import { CartPayloadAdapter } from './cart-payload-adapter.js';
 import {
   findItemUid,
   setSubscriptionAttributes,
@@ -121,6 +122,110 @@ async function persistSubscriptionLine(cartId, itemUid, subscriptionOptionId, se
 }
 
 /**
+ * Additive AccS hook for merchant blocks: prepare → keep Adobe add/update → finalize.
+ *
+ * One-time selection: pending is skipped; finalize is a no-op.
+ *
+ * @param {{
+ *   values: Record<string, unknown>|null|undefined,
+ *   selection?: import('./contract.js').SubscriptionSelection|null,
+ *   productData?: { sku?: string, externalId?: string, id?: string, name?: string }|null,
+ *   mode?: 'add'|'update',
+ *   itemUid?: string|null,
+ * }} input
+ * @returns {Promise<{
+ *   cartItem: Record<string, unknown>,
+ *   finalize: (args?: {
+ *     cartResult?: unknown,
+ *     itemUid?: string|null,
+ *   }) => Promise<void>,
+ * }>}
+ */
+export async function prepareSubscriptionCartItem(input) {
+  const {
+    values,
+    selection = { purchaseType: 'one_time' },
+    productData = null,
+    mode = 'add',
+    itemUid = null,
+  } = input;
+
+  const catalogProductId = productData?.externalId || productData?.id;
+  let cartItem = CartPayloadAdapter.enrich(
+    values || { sku: productData?.sku, quantity: 1 },
+    selection,
+    {
+      parentSku: productData?.sku,
+      selectedPlan: selection?.selectedPlan,
+    },
+  );
+
+  if (mode === 'update') {
+    cartItem = {
+      ...cartItem,
+      ...(itemUid ? { uid: itemUid } : {}),
+      // Empty customFields forces the drop-in to replace the line (not qty-only).
+      customFields: {},
+    };
+  }
+
+  if (!isSubscriptionSelection(selection)) {
+    return {
+      cartItem,
+      finalize: async () => {},
+    };
+  }
+
+  const cartId = await resolveCartId();
+  const cartBefore = await readCartQuietly();
+  const subscriptionOptionId = await registerPendingSubscription(
+    cartId,
+    cartItem.sku,
+    selection,
+    catalogProductId,
+  );
+
+  return {
+    cartItem,
+    finalize: async (args = {}) => {
+      const finalizeUid = args.itemUid || itemUid;
+      let currentCart = args.cartResult || (await getCartData());
+      let targetUid = mode === 'update'
+        ? (finalizeUid || findItemUid(currentCart, cartItem.sku, cartItem.parentSku))
+        : resolveAddedItemUid(cartBefore, currentCart, cartItem);
+
+      if (!targetUid && typeof refreshCart === 'function') {
+        currentCart = (await refreshCart()) || currentCart;
+        targetUid = mode === 'update'
+          ? (finalizeUid || findItemUid(currentCart, cartItem.sku, cartItem.parentSku))
+          : resolveAddedItemUid(cartBefore, currentCart, cartItem);
+      }
+
+      if (!targetUid) {
+        throw new Error(`[RecurBuy] Cart item UID not found for SKU: ${cartItem.sku}`);
+      }
+
+      rememberResolvedLineSelection(currentCart, targetUid, selection);
+      await persistSubscriptionLine(
+        cartId,
+        targetUid,
+        subscriptionOptionId,
+        selection,
+        mode === 'update'
+          ? (cartItem.quantity || 1)
+          : quantityOnLine(currentCart, targetUid, cartItem.quantity),
+      );
+
+      if (typeof refreshCart === 'function') {
+        await refreshCart();
+      }
+    },
+  };
+}
+
+/**
+ * Convenience wrapper: prepare + Adobe add + finalize (optional for custom buttons).
+ *
  * @param {Object} params
  * @param {Object} params.cartItem
  * @param {Object} [params.selection]
@@ -134,51 +239,21 @@ export async function addToCartWithSubscription({
   catalogProductId,
   addProductsToCart: addFn = adobeAddProductsToCart,
 }) {
-  if (!isSubscriptionSelection(selection)) {
-    // No pending-add ⇒ price webhook treats the line as one-time / catalog.
-    return addFn([cartItem]);
-  }
-
-  const cartId = await resolveCartId();
-  const cartBefore = await readCartQuietly();
-  const subscriptionOptionId = await registerPendingSubscription(
-    cartId,
-    cartItem.sku,
+  const prepared = await prepareSubscriptionCartItem({
+    values: cartItem,
     selection,
-    catalogProductId,
-  );
-
-  const addResult = await addFn([cartItem]);
-  let currentCart = addResult || (await getCartData());
-  let itemUid = resolveAddedItemUid(cartBefore, currentCart, cartItem);
-
-  if (!itemUid && typeof refreshCart === 'function') {
-    currentCart = (await refreshCart()) || currentCart;
-    itemUid = resolveAddedItemUid(cartBefore, currentCart, cartItem);
-  }
-
-  if (!itemUid) {
-    throw new Error(`[RecurBuy] Added item UID not found in cart for SKU: ${cartItem.sku}`);
-  }
-
-  rememberResolvedLineSelection(currentCart, itemUid, selection);
-
-  // Commerce merges a repeated SKU into the existing line. The PDP quantity is
-  // only this add, so writing it back would reset a line of 2 to 1.
-  await persistSubscriptionLine(
-    cartId,
-    itemUid,
-    subscriptionOptionId,
-    selection,
-    quantityOnLine(currentCart, itemUid, cartItem.quantity),
-  );
-
-  if (typeof refreshCart === 'function') {
-    const refreshed = await refreshCart();
-    return refreshed || currentCart;
-  }
-
-  return currentCart;
+    productData: {
+      sku: cartItem?.parentSku || cartItem?.sku,
+      externalId: catalogProductId,
+    },
+    mode: 'add',
+  });
+  // Prefer caller cartItem shape when already enriched; pending used prepared path.
+  const line = prepared.cartItem;
+  const addResult = await addFn([line]);
+  await prepared.finalize({ cartResult: addResult });
+  if (addResult) return addResult;
+  return getCartData();
 }
 
 /**
@@ -335,39 +410,17 @@ export async function updateCartItemWithSubscription({
   catalogProductId,
   updateProductsFromCart: updateFn = adobeUpdateProductsFromCart,
 }) {
-  const isSubscription = isSubscriptionSelection(selection);
-  const cartId = isSubscription ? await resolveCartId() : null;
-  const subscriptionOptionId = isSubscription
-    ? await registerPendingSubscription(
-      cartId,
-      cartItem.sku,
-      selection,
-      catalogProductId,
-    )
-    : null;
-
-  const updateResult = await updateFn([{
-    ...cartItem,
-    uid: itemUid,
-    customFields: {},
-  }]);
-
-  if (isSubscription) {
-    const updatedCart = updateResult || (await getCartData());
-    const targetUid = findItemUid(updatedCart, cartItem.sku, cartItem.parentSku) || itemUid;
-    rememberResolvedLineSelection(updatedCart, targetUid, selection);
-    await persistSubscriptionLine(
-      cartId,
-      targetUid,
-      subscriptionOptionId,
-      selection,
-      cartItem.quantity || 1,
-    );
-  }
-
-  if (typeof refreshCart === 'function') {
-    await refreshCart();
-  }
-
+  const prepared = await prepareSubscriptionCartItem({
+    values: cartItem,
+    selection,
+    productData: {
+      sku: cartItem?.parentSku || cartItem?.sku,
+      externalId: catalogProductId,
+    },
+    mode: 'update',
+    itemUid,
+  });
+  const updateResult = await updateFn([prepared.cartItem]);
+  await prepared.finalize({ cartResult: updateResult, itemUid });
   return updateResult;
 }

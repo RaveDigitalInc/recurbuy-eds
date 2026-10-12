@@ -10,6 +10,7 @@ import { mountSubscriptionOnPdp } from '../mount-pdp.js';
 import { getSelectionForCartItem } from '../selection-store.js';
 import {
   addToCartWithSubscription,
+  prepareSubscriptionCartItem,
   updateCartItemWithSubscription,
 } from '../subscription-add-to-cart.js';
 
@@ -78,6 +79,26 @@ export function attachPdpSubscription(options) {
     bindCartButton(button) {
       buttonRef = button || null;
       validity.sync();
+    },
+    /**
+     * Additive AccS hook: call before Adobe add/update, then `finalize` after.
+     * Keeps merchant blocks on native `@dropins/storefront-cart` calls.
+     *
+     * @param {Record<string, unknown>|null|undefined} values
+     * @param {{
+     *   productData?: { sku?: string, externalId?: string, id?: string, name?: string }|null,
+     *   mode?: 'add'|'update',
+     *   itemUid?: string|null,
+     * }} [options]
+     */
+    prepareCartItem(values, prepareOptions = {}) {
+      return prepareSubscriptionCartItem({
+        values,
+        selection: controller.getSelection(),
+        productData: prepareOptions.productData,
+        mode: prepareOptions.mode || 'add',
+        itemUid: prepareOptions.itemUid,
+      });
     },
   };
 }
@@ -196,7 +217,7 @@ export async function submitProductDetailsCart(input) {
     itemUid,
   } = input;
 
-  const catalogProductId = productData?.externalId;
+  const catalogProductId = productData?.externalId || productData?.id;
   const cartItem = CartPayloadAdapter.enrich(
     values || { sku: productData?.sku, quantity: 1 },
     selection,

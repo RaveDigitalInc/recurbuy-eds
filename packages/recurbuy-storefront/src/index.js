@@ -84,6 +84,7 @@ export { createCartModelCustomAttributesTransformer } from './extend/initializer
 export { appendCartProductAttributesSlot } from './helpers/cart-product-attributes-slot.js';
 export {
   addToCartWithSubscription,
+  prepareSubscriptionCartItem,
   updateCartItemWithSubscription,
 } from './subscription-add-to-cart.js';
 export { getShopperAuthToken } from './auth.js';

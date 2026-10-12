@@ -11,6 +11,7 @@ import {
   provider as UI,
 } from '@dropins/tools/components.js';
 import { h } from '@dropins/tools/preact.js';
+import * as Cart from '@dropins/storefront-cart/api.js';
 
 // PDP Containers for Mini PDP
 import ProductPrice from '@dropins/storefront-pdp/containers/ProductPrice.js';
@@ -19,7 +20,6 @@ import ProductQuantity from '@dropins/storefront-pdp/containers/ProductQuantity.
 import {
   attachPdpSubscription,
   resolveCartItemInitialSelection,
-  submitMiniPdpCartUpdate,
 } from '@recurbuy/storefront-eds/extend/product-details.js';
 
 // Initializers
@@ -218,23 +218,40 @@ export default async function createMiniPDP(cartItem, onUpdate, onClose) {
               disabled: true,
             }));
 
+            // Get current product configuration
             const values = pdpApi.getProductConfigurationValues({ scope: 'modal' });
-            const updateData = await submitMiniPdpCartUpdate({
-              configurationValid: pdpApi.isProductConfigurationValid({ scope: 'modal' }),
-              subscriptionController: pdpSubscription,
-              values,
-              product,
-              sku,
-              cartItem,
+            const valid = pdpApi.isProductConfigurationValid({ scope: 'modal' })
+              && pdpSubscription.isSelectionValid();
+
+            if (!valid) {
+              throw new Error('Please select all required options');
+            }
+
+            const prepared = await pdpSubscription.prepareCartItem(values, {
+              productData: {
+                sku,
+                externalId: product?.externalId || product?.id,
+                name: product?.name,
+              },
+              mode: 'update',
+              itemUid: cartItem.uid,
             });
 
-            const { getCartData } = await import('@dropins/storefront-cart/api.js');
-            events.emit('cart/updated', await getCartData());
+            const updateResponse = await Cart.updateProductsFromCart([
+              prepared.cartItem,
+            ]);
+            await prepared.finalize({
+              cartResult: updateResponse,
+              itemUid: cartItem.uid,
+            });
+
+            // Trigger cart refresh to ensure UI updates
+            events.emit('cart/updated', updateResponse);
 
             inlineAlert?.remove();
 
             if (onUpdate) {
-              onUpdate(updateData);
+              onUpdate(prepared.cartItem);
             }
 
             onClose();
