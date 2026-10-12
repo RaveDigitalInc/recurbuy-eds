@@ -17,7 +17,9 @@ export function hideAccsCartMergeOptionElements(root = typeof document !== 'unde
   nodes.forEach((el) => {
     if (!(el instanceof HTMLElement)) return;
     const text = (el.textContent || '').trim();
-    if (text !== ACCS_CART_MERGE_OPTION_TITLE && text.toLowerCase() !== ACCS_CART_MERGE_OPTION_SKU) {
+    const isMergeTitle = text === ACCS_CART_MERGE_OPTION_TITLE;
+    const isMergeSku = text.toLowerCase() === ACCS_CART_MERGE_OPTION_SKU;
+    if (!isMergeTitle && !isMergeSku) {
       return;
     }
     const container = el.closest(

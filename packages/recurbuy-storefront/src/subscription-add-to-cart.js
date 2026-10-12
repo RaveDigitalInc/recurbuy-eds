@@ -84,7 +84,7 @@ function peekAccsCartMergeOptionUid(productData) {
   const config = peekCachedSubscriptionConfig(productId);
   const merge = config?.accsCartMergeOption;
   if (!merge || typeof merge !== 'object') return null;
-  const uid = /** @type {{ uid?: unknown }} */ (merge).uid;
+  const { uid } = /** @type {{ uid?: unknown }} */ (merge);
   return typeof uid === 'string' && uid.trim() !== '' ? uid.trim() : null;
 }
 
