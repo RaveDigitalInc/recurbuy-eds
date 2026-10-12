@@ -64,6 +64,7 @@ import { render as OrderProvider } from '@dropins/storefront-order/render.js';
 import { PaymentMethodCode } from '@dropins/storefront-payment-services/api.js';
 import CreditCard from '@dropins/storefront-payment-services/containers/CreditCard.js';
 import { render as PaymentServices } from '@dropins/storefront-payment-services/render.js';
+import { createCheckoutProductAttributesSlot } from '@recurbuy/storefront-eds/extend/cart.js';
 import { getUserTokenCookie } from '../../scripts/initializers/index.js';
 
 // Block-level
@@ -86,6 +87,7 @@ import {
 } from '../../scripts/commerce.js';
 
 // Initializers
+import '../../scripts/initializers/cart.js';
 import '../../scripts/initializers/account.js';
 import '../../scripts/initializers/checkout.js';
 import '../../scripts/initializers/order.js';
@@ -429,6 +431,7 @@ export default async function decorate(block) {
             },
           });
         },
+        ProductAttributes: createCheckoutProductAttributesSlot(),
         Footer: (ctx) => {
           const giftOptions = document.createElement('div');
 

@@ -9,6 +9,7 @@ import {
   Button,
 } from '@dropins/tools/components.js';
 import { h } from '@dropins/tools/preact.js';
+import { createCartSubscriptionSession } from '@recurbuy/storefront-eds/extend/cart.js';
 
 import createModal from '../modal/modal.js';
 import createMiniPDP from '../commerce-mini-pdp/commerce-mini-pdp.js';
@@ -39,6 +40,12 @@ export default async function decorate(block) {
   // Modal state
   let currentModal = null;
   let currentCartNotification = null;
+
+  let latestCartItems = [];
+  const subscriptions = createCartSubscriptionSession({
+    getCartItems: () => latestCartItems,
+  });
+  const subscriptionSlots = subscriptions.createMiniCartSlots();
 
   // Create a container for the update message
   const updateMessage = document.createElement('div');
@@ -139,6 +146,10 @@ export default async function decorate(block) {
   events.on('cart/product/updated', () => showMessage(MESSAGES.UPDATED), {
     eager: true,
   });
+  events.on('cart/data', (cartData) => {
+    latestCartItems = cartData?.items || [];
+    subscriptions.syncFromCartData(cartData, { variant: 'mini' });
+  }, { eager: true });
 
   // Prevent mini cart from closing when undo is enabled
   if (undo === 'true') {
@@ -169,6 +180,8 @@ export default async function decorate(block) {
     undo: undo === 'true',
 
     slots: {
+      ...subscriptionSlots,
+
       Thumbnail: (ctx) => {
         const { item, defaultImageProps } = ctx;
         const anchorWrapper = document.createElement('a');

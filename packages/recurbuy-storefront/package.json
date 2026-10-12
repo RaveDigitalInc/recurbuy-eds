@@ -1,0 +1,39 @@
+{
+  "name": "@recurbuy/storefront-eds",
+  "version": "0.1.0",
+  "private": true,
+  "description": "RecurBuy subscription library for Adobe Commerce Storefront (EDS). Import and call — no @dropins remaps.",
+  "type": "module",
+  "sideEffects": [
+    "./styles/recurbuy-storefront.css"
+  ],
+  "main": "./src/index.js",
+  "module": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./extend/product-details.js": "./extend/product-details.js",
+    "./extend/cart.js": "./extend/cart.js",
+    "./extend/initializer.js": "./extend/initializer.js",
+    "./styles/recurbuy-storefront.css": "./styles/recurbuy-storefront.css",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "extend",
+    "src",
+    "styles",
+    "README.md"
+  ],
+  "peerDependencies": {
+    "@dropins/storefront-cart": "*",
+    "@dropins/storefront-pdp": "*",
+    "@dropins/tools": "*"
+  },
+  "keywords": [
+    "recurbuy",
+    "subscriptions",
+    "adobe-commerce",
+    "eds",
+    "dropins"
+  ],
+  "license": "UNLICENSED"
+}

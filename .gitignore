@@ -10,3 +10,6 @@ helix-importer-ui
 .idea
 # Ignore .map files in scripts/__dropins__/ directory and all its subdirectories
 scripts/__dropins__/**/*.map
+
+# Local storefront secrets / endpoints — copy from config.example.json
+config.json

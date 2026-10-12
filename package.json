@@ -47,6 +47,7 @@
     "@dropins/storefront-wishlist": "~2.0.0",
     "@dropins/tools": "~1.4.1",
     "@dropins/storefront-personalization": "~1.0.1",
-    "@dropins/storefront-product-discovery": "~2.0.0"
+    "@dropins/storefront-product-discovery": "~2.0.0",
+    "@recurbuy/storefront-eds": "file:packages/recurbuy-storefront"
   }
 }

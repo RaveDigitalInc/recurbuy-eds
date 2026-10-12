@@ -62,7 +62,7 @@ const e = `
   from
   to
   message
-}`, i = (`fragment GIFT_WRAPPING_FRAGMENT on GiftWrapping {
+}`, i = `fragment GIFT_WRAPPING_FRAGMENT on GiftWrapping {
   __typename
   uid
   design
@@ -73,7 +73,7 @@ const e = `
     value
     currency
   }
-}`), n = `fragment AVAILABLE_GIFT_WRAPPING_FRAGMENT on GiftWrapping {
+}`, n = `fragment AVAILABLE_GIFT_WRAPPING_FRAGMENT on GiftWrapping {
   __typename
   uid
   design
@@ -85,7 +85,7 @@ const e = `
     currency
     value
   }
-}`, l = `fragment CART_ITEM_FRAGMENT on CartItemInterface {
+}`, l = (`fragment CART_ITEM_FRAGMENT on CartItemInterface {
   __typename
   uid
   quantity
@@ -258,13 +258,17 @@ const e = `
     }
     is_available
   }
+  custom_attributes {
+    attribute_code
+    value
+  }
 }
 ${e}
 ${_}
 ${a}
 ${i}
 ${r}
-${n}`, u = `fragment CART_FRAGMENT on Cart {
+${n}`), u = `fragment CART_FRAGMENT on Cart {
   id
   total_quantity
   is_virtual

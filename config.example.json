@@ -13,6 +13,11 @@
           "Magento-Website-Code": "base"
         }
       },
+      "subscriptions-storefront-url": "https://YOUR_RECURBUY_PANEL_HOST",
+      "subscriptions-connection-token": "YOUR_CONNECTION_TOKEN",
+      "subscriptions-store-id": "YOUR_PANEL_STORE_ID",
+      "subscriptions-website-id": "",
+      "subscriptions-timeout-ms": 30000,
       "plugins": {
         "picker": {
           "rootCategory": "2"

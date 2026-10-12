@@ -17,6 +17,10 @@ import * as Cart from '@dropins/storefront-cart/api.js';
 import ProductPrice from '@dropins/storefront-pdp/containers/ProductPrice.js';
 import ProductOptions from '@dropins/storefront-pdp/containers/ProductOptions.js';
 import ProductQuantity from '@dropins/storefront-pdp/containers/ProductQuantity.js';
+import {
+  attachPdpSubscription,
+  resolveCartItemInitialSelection,
+} from '@recurbuy/storefront-eds/extend/product-details.js';
 
 // Initializers
 import '../../scripts/initializers/cart.js';
@@ -108,6 +112,8 @@ export default async function createMiniPDP(cartItem, onUpdate, onClose) {
           </a>
         </div>
         <div class="mini-pdp__price"></div>
+        <div class="mini-pdp__subscription-price"></div>
+        <div class="mini-pdp__subscription"></div>
         <div class="mini-pdp__left-column">
           <div class="mini-pdp__gallery"></div>
         </div>
@@ -136,6 +142,8 @@ export default async function createMiniPDP(cartItem, onUpdate, onClose) {
     const $alert = fragment.querySelector('.mini-pdp__alert');
     const $header = fragment.querySelector('.mini-pdp__header');
     const $price = fragment.querySelector('.mini-pdp__price');
+    const $subscription = fragment.querySelector('.mini-pdp__subscription');
+    const $subscriptionPrice = fragment.querySelector('.mini-pdp__subscription-price');
     const $gallery = fragment.querySelector('.mini-pdp__gallery');
     const $options = fragment.querySelector('.mini-pdp__options');
     const $quantity = fragment.querySelector('.mini-pdp__quantity');
@@ -152,6 +160,15 @@ export default async function createMiniPDP(cartItem, onUpdate, onClose) {
     // State management
     let isLoading = false;
     let inlineAlert = null;
+
+    const pdpSubscription = attachPdpSubscription({
+      selectorRoot: $subscription,
+      priceRoot: $subscriptionPrice,
+      productPriceRoot: $price,
+      scope: 'modal',
+      initialSelection: resolveCartItemInitialSelection(cartItem),
+      getLoading: () => isLoading,
+    });
 
     // Render components
     const [
@@ -203,7 +220,8 @@ export default async function createMiniPDP(cartItem, onUpdate, onClose) {
 
             // Get current product configuration
             const values = pdpApi.getProductConfigurationValues({ scope: 'modal' });
-            const valid = pdpApi.isProductConfigurationValid({ scope: 'modal' });
+            const valid = pdpApi.isProductConfigurationValid({ scope: 'modal' })
+              && pdpSubscription.isSelectionValid();
 
             if (!valid) {
               throw new Error('Please select all required options');
@@ -219,9 +237,23 @@ export default async function createMiniPDP(cartItem, onUpdate, onClose) {
               }),
             };
 
+            const subscriptionCart = await pdpSubscription.prepareCartItem(values, {
+              productData: {
+                sku,
+                externalId: product?.externalId || product?.id,
+                name: product?.name,
+              },
+              mode: 'update',
+              itemUid: cartItem.uid,
+            });
+
             const updateResponse = await Cart.updateProductsFromCart([
-              updateData,
+              { ...updateData, ...subscriptionCart.adobeExtras },
             ]);
+            await subscriptionCart.finalize({
+              cartResult: updateResponse,
+              itemUid: cartItem.uid,
+            });
 
             // Trigger cart refresh to ensure UI updates
             events.emit('cart/updated', updateResponse);
@@ -255,10 +287,10 @@ export default async function createMiniPDP(cartItem, onUpdate, onClose) {
             isLoading = false;
             updateButton.setProps((prev) => ({
               ...prev,
-              children:
-                placeholders?.Global?.UpdateProductInCart,
+              children: placeholders?.Global?.UpdateProductInCart,
               disabled: false,
             }));
+            pdpSubscription.sync();
           }
         },
         disabled: isLoading,
@@ -285,15 +317,12 @@ export default async function createMiniPDP(cartItem, onUpdate, onClose) {
       })($redirectButton),
     ]);
 
+    pdpSubscription.bindCartButton(updateButton);
+
     // Handle PDP validation events
     events.on(
       'pdp/valid',
-      (valid) => {
-        updateButton.setProps((prev) => ({
-          ...prev,
-          disabled: !valid || isLoading,
-        }));
-      },
+      pdpSubscription.onProductValid,
       { eager: true, scope: 'modal' },
     );
 

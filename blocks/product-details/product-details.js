@@ -23,6 +23,7 @@ import ProductQuantity from '@dropins/storefront-pdp/containers/ProductQuantity.
 import ProductDescription from '@dropins/storefront-pdp/containers/ProductDescription.js';
 import ProductAttributes from '@dropins/storefront-pdp/containers/ProductAttributes.js';
 import ProductGallery from '@dropins/storefront-pdp/containers/ProductGallery.js';
+import { attachPdpSubscription } from '@recurbuy/storefront-eds/extend/product-details.js';
 
 // Libs
 import {
@@ -70,6 +71,8 @@ export default async function decorate(block) {
       <div class="product-details__right-column">
         <div class="product-details__header"></div>
         <div class="product-details__price"></div>
+        <div class="product-details__subscription-price"></div>
+        <div class="product-details__subscription"></div>
         <div class="product-details__gallery"></div>
         <div class="product-details__short-description"></div>
         <div class="product-details__configuration">
@@ -79,6 +82,7 @@ export default async function decorate(block) {
             <div class="product-details__buttons__add-to-cart"></div>
             <div class="product-details__buttons__add-to-wishlist"></div>
           </div>
+          <div class="product-details__subscription-details"></div>
         </div>
         <div class="product-details__description"></div>
         <div class="product-details__attributes"></div>
@@ -90,8 +94,11 @@ export default async function decorate(block) {
   const $gallery = fragment.querySelector('.product-details__gallery');
   const $header = fragment.querySelector('.product-details__header');
   const $price = fragment.querySelector('.product-details__price');
+  const $subscriptionPrice = fragment.querySelector('.product-details__subscription-price');
   const $galleryMobile = fragment.querySelector('.product-details__right-column .product-details__gallery');
   const $shortDescription = fragment.querySelector('.product-details__short-description');
+  const $subscription = fragment.querySelector('.product-details__subscription');
+  const $subscriptionDetails = fragment.querySelector('.product-details__subscription-details');
   const $options = fragment.querySelector('.product-details__options');
   const $quantity = fragment.querySelector('.product-details__quantity');
   const $addToCart = fragment.querySelector('.product-details__buttons__add-to-cart');
@@ -100,6 +107,13 @@ export default async function decorate(block) {
   const $attributes = fragment.querySelector('.product-details__attributes');
 
   block.replaceChildren(fragment);
+
+  const pdpSubscription = attachPdpSubscription({
+    selectorRoot: $subscription,
+    priceRoot: $subscriptionPrice,
+    productPriceRoot: $price,
+    detailsRoot: $subscriptionDetails,
+  });
 
   const gallerySlots = {
     CarouselThumbnail: (ctx) => {
@@ -214,17 +228,32 @@ export default async function decorate(block) {
 
         // get the current selection values
         const values = pdpApi.getProductConfigurationValues();
-        const valid = pdpApi.isProductConfigurationValid();
+        const valid = pdpApi.isProductConfigurationValid()
+          && pdpSubscription.isSelectionValid();
 
         // add or update the product in the cart
         if (valid) {
+          const productData = events.lastPayload('pdp/data') ?? product;
+          const subscriptionCart = await pdpSubscription.prepareCartItem(values, {
+            productData,
+            mode: isUpdateMode ? 'update' : 'add',
+            itemUid: itemUidFromUrl,
+          });
+
           if (isUpdateMode) {
             // --- Update existing item ---
             const { updateProductsFromCart } = await import(
               '@dropins/storefront-cart/api.js'
             );
 
-            await updateProductsFromCart([{ ...values, uid: itemUidFromUrl }]);
+            // Adobe call kept; subscriptionCart.cartItem = values + AccS extras
+            const updateResponse = await updateProductsFromCart([
+              { ...values, uid: itemUidFromUrl, ...subscriptionCart.adobeExtras },
+            ]);
+            await subscriptionCart.finalize({
+              cartResult: updateResponse,
+              itemUid: itemUidFromUrl,
+            });
 
             // --- START REDIRECT ON UPDATE ---
             const updatedSku = values?.sku;
@@ -248,7 +277,10 @@ export default async function decorate(block) {
           const { addProductsToCart } = await import(
             '@dropins/storefront-cart/api.js'
           );
-          await addProductsToCart([{ ...values }]);
+          const addResponse = await addProductsToCart([
+            { ...values, ...subscriptionCart.adobeExtras },
+          ]);
+          await subscriptionCart.finalize({ cartResult: addResponse });
         }
 
         // reset any previous alerts if successful
@@ -274,20 +306,20 @@ export default async function decorate(block) {
       } finally {
         // Reset button text using the helper function which respects the current mode
         updateAddToCartButtonText(addToCart, isUpdateMode, labels);
-        // Re-enable button
+        // Re-enable button (subscription sync may keep it disabled if selection invalid)
         addToCart.setProps((prev) => ({
           ...prev,
           disabled: false,
         }));
+        pdpSubscription.sync();
       }
     },
   })($addToCart);
 
-  // Lifecycle Events
-  events.on('pdp/valid', (valid) => {
-    // update add to cart button disabled state based on product selection validity
-    addToCart.setProps((prev) => ({ ...prev, disabled: !valid }));
-  }, { eager: true });
+  pdpSubscription.bindCartButton(addToCart);
+
+  // Lifecycle Events (subscription handler also gates plan selection validity)
+  events.on('pdp/valid', pdpSubscription.onProductValid, { eager: true });
 
   // Handle option changes
   events.on('pdp/values', () => {

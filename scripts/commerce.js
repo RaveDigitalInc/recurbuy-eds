@@ -525,6 +525,7 @@ export async function getConfigFromSession() {
     ) {
       throw new Error('Config expired');
     }
+
     return parsedConfig;
   } catch (e) {
     const config = await fetch(configURL);

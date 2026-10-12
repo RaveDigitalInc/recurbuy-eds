@@ -23,6 +23,7 @@ import { tryRenderAemAssetsImage } from '@dropins/tools/lib/aem/assets.js';
 
 // API
 import { publishShoppingCartViewEvent } from '@dropins/storefront-cart/api.js';
+import { createCartSubscriptionSession } from '@recurbuy/storefront-eds/extend/cart.js';
 
 // Modal and Mini PDP
 import createModal from '../modal/modal.js';
@@ -57,6 +58,16 @@ export default async function decorate(block) {
   // Modal state
   let currentModal = null;
   let currentNotification = null;
+  let orderSummary = null;
+
+  const subscriptions = createCartSubscriptionSession({
+    getCartItems: () => Cart.getCartDataFromCache()?.items || [],
+    labels: {
+      payNow: placeholders?.Global?.YouPayNow,
+      chargedFor: placeholders?.Global?.YouWillBeChargedFor,
+    },
+  });
+  const subscriptionSlots = subscriptions.createSummarySlots();
 
   // Layout
   const fragment = document.createRange().createContextualFragment(`
@@ -169,7 +180,7 @@ export default async function decorate(block) {
 
   // Render Containers
   const getProductLink = (product) => rootLink(`/products/${product.url.urlKey}/${product.topLevelSku}`);
-  await Promise.all([
+  [, orderSummary] = await Promise.all([
     // Cart List
     provider.render(CartSummaryList, {
       hideHeading: hideHeading === 'true',
@@ -183,6 +194,8 @@ export default async function decorate(block) {
       enableRemoveItem: enableRemoveItem === 'true',
       undo: undo === 'true',
       slots: {
+        ...subscriptionSlots,
+
         Thumbnail: (ctx) => {
           const { item, defaultImageProps } = ctx;
           const anchorWrapper = document.createElement('a');
@@ -255,6 +268,7 @@ export default async function decorate(block) {
     provider.render(OrderSummary, {
       routeProduct: getProductLink,
       routeCheckout: checkoutURL ? () => rootLink(checkoutURL) : undefined,
+      updateLineItems: subscriptions.buildSummaryUpdater(),
       slots: {
         EstimateShipping: async (ctx) => {
           if (enableEstimateShipping === 'true') {
@@ -305,6 +319,8 @@ export default async function decorate(block) {
         cartViewEventPublished = true;
         publishShoppingCartViewEvent();
       }
+
+      subscriptions.syncFromCartData(cartData, { orderSummary });
     },
     { eager: true },
   );
