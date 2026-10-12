@@ -48,17 +48,14 @@ Peer deps (already in Adobe boilerplate): `@dropins/storefront-cart`, `@dropins/
 
 ### 2. Import map (`head.html`)
 
-EDS serves ESM from the site root. Map the package to its **served** location (no Adobe remaps):
+EDS serves ESM from the site root. Always map to **`node_modules`** (works for published npm and for `file:packages/…`, which npm symlinks into `node_modules/@recurbuy/storefront-eds`):
 
 ```json
-/* published npm / node_modules */
 "@recurbuy/storefront-eds/": "/node_modules/@recurbuy/storefront-eds/",
 "@recurbuy/storefront-eds": "/node_modules/@recurbuy/storefront-eds/src/index.js"
-
-/* this monorepo (file: package) */
-"@recurbuy/storefront-eds/": "/packages/recurbuy-storefront/",
-"@recurbuy/storefront-eds": "/packages/recurbuy-storefront/src/index.js"
 ```
+
+Do **not** hardcode `/packages/recurbuy-storefront/` — that path exists only in this monorepo layout and breaks for merchants who `npm install @recurbuy/storefront-eds`.
 
 ### 3. Config (`config.json` → `public.default`)
 
