@@ -234,7 +234,7 @@ export default async function decorate(block) {
         // add or update the product in the cart
         if (valid) {
           const productData = events.lastPayload('pdp/data') ?? product;
-          const prepared = await pdpSubscription.prepareCartItem(values, {
+          const subscriptionCart = await pdpSubscription.prepareCartItem(values, {
             productData,
             mode: isUpdateMode ? 'update' : 'add',
             itemUid: itemUidFromUrl,
@@ -246,14 +246,17 @@ export default async function decorate(block) {
               '@dropins/storefront-cart/api.js'
             );
 
-            const updateResponse = await updateProductsFromCart([prepared.cartItem]);
-            await prepared.finalize({
+            // Adobe call kept; subscriptionCart.cartItem = values + AccS extras
+            const updateResponse = await updateProductsFromCart([
+              { ...values, uid: itemUidFromUrl, ...subscriptionCart.adobeExtras },
+            ]);
+            await subscriptionCart.finalize({
               cartResult: updateResponse,
               itemUid: itemUidFromUrl,
             });
 
             // --- START REDIRECT ON UPDATE ---
-            const updatedSku = prepared.cartItem?.sku || values?.sku;
+            const updatedSku = values?.sku;
             if (updatedSku) {
               const cartRedirectUrl = new URL(
                 rootLink('/cart'),
@@ -274,8 +277,10 @@ export default async function decorate(block) {
           const { addProductsToCart } = await import(
             '@dropins/storefront-cart/api.js'
           );
-          const addResponse = await addProductsToCart([prepared.cartItem]);
-          await prepared.finalize({ cartResult: addResponse });
+          const addResponse = await addProductsToCart([
+            { ...values, ...subscriptionCart.adobeExtras },
+          ]);
+          await subscriptionCart.finalize({ cartResult: addResponse });
         }
 
         // reset any previous alerts if successful
@@ -301,6 +306,11 @@ export default async function decorate(block) {
       } finally {
         // Reset button text using the helper function which respects the current mode
         updateAddToCartButtonText(addToCart, isUpdateMode, labels);
+        // Re-enable button (subscription sync may keep it disabled if selection invalid)
+        addToCart.setProps((prev) => ({
+          ...prev,
+          disabled: false,
+        }));
         pdpSubscription.sync();
       }
     },
@@ -308,7 +318,7 @@ export default async function decorate(block) {
 
   pdpSubscription.bindCartButton(addToCart);
 
-  // Lifecycle Events
+  // Lifecycle Events (subscription handler also gates plan selection validity)
   events.on('pdp/valid', pdpSubscription.onProductValid, { eager: true });
 
   // Handle option changes

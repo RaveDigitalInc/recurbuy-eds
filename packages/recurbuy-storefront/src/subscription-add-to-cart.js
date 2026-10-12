@@ -135,6 +135,7 @@ async function persistSubscriptionLine(cartId, itemUid, subscriptionOptionId, se
  * }} input
  * @returns {Promise<{
  *   cartItem: Record<string, unknown>,
+ *   adobeExtras: Record<string, unknown>,
  *   finalize: (args?: {
  *     cartResult?: unknown,
  *     itemUid?: string|null,
@@ -160,6 +161,15 @@ export async function prepareSubscriptionCartItem(input) {
     },
   );
 
+  /** @type {Record<string, unknown>} */
+  const adobeExtras = {};
+  if (cartItem.parentSku) {
+    adobeExtras.parentSku = cartItem.parentSku;
+  }
+  if (Object.prototype.hasOwnProperty.call(cartItem, 'enteredOptions')) {
+    adobeExtras.enteredOptions = cartItem.enteredOptions;
+  }
+
   if (mode === 'update') {
     cartItem = {
       ...cartItem,
@@ -167,11 +177,13 @@ export async function prepareSubscriptionCartItem(input) {
       // Empty customFields forces the drop-in to replace the line (not qty-only).
       customFields: {},
     };
+    adobeExtras.customFields = {};
   }
 
   if (!isSubscriptionSelection(selection)) {
     return {
       cartItem,
+      adobeExtras,
       finalize: async () => {},
     };
   }
@@ -187,6 +199,7 @@ export async function prepareSubscriptionCartItem(input) {
 
   return {
     cartItem,
+    adobeExtras,
     finalize: async (args = {}) => {
       const finalizeUid = args.itemUid || itemUid;
       let currentCart = args.cartResult || (await getCartData());

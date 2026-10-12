@@ -227,7 +227,17 @@ export default async function createMiniPDP(cartItem, onUpdate, onClose) {
               throw new Error('Please select all required options');
             }
 
-            const prepared = await pdpSubscription.prepareCartItem(values, {
+            // Update cart item with new configuration
+            const updateData = {
+              uid: cartItem.uid,
+              quantity: values.quantity || cartItem.quantity,
+              ...(values.optionsUIDs
+                && values.optionsUIDs.length > 0 && {
+                optionsUIDs: values.optionsUIDs,
+              }),
+            };
+
+            const subscriptionCart = await pdpSubscription.prepareCartItem(values, {
               productData: {
                 sku,
                 externalId: product?.externalId || product?.id,
@@ -238,9 +248,9 @@ export default async function createMiniPDP(cartItem, onUpdate, onClose) {
             });
 
             const updateResponse = await Cart.updateProductsFromCart([
-              prepared.cartItem,
+              { ...updateData, ...subscriptionCart.adobeExtras },
             ]);
-            await prepared.finalize({
+            await subscriptionCart.finalize({
               cartResult: updateResponse,
               itemUid: cartItem.uid,
             });
@@ -251,7 +261,7 @@ export default async function createMiniPDP(cartItem, onUpdate, onClose) {
             inlineAlert?.remove();
 
             if (onUpdate) {
-              onUpdate(prepared.cartItem);
+              onUpdate(updateData);
             }
 
             onClose();
@@ -278,6 +288,7 @@ export default async function createMiniPDP(cartItem, onUpdate, onClose) {
             updateButton.setProps((prev) => ({
               ...prev,
               children: placeholders?.Global?.UpdateProductInCart,
+              disabled: false,
             }));
             pdpSubscription.sync();
           }

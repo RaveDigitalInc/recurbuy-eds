@@ -99,26 +99,23 @@ const pdpSubscription = attachPdpSubscription({
 pdpSubscription.bindCartButton(addToCart);
 events.on('pdp/valid', pdpSubscription.onProductValid, { eager: true });
 
-// Keep Adobe imports — only insert prepare / finalize around them:
+// Keep Adobe imports — insert prepare / finalize; spread adobeExtras onto original payload:
 const values = pdpApi.getProductConfigurationValues();
 const valid = pdpApi.isProductConfigurationValid()
   && pdpSubscription.isSelectionValid();
 
 if (valid) {
-  const prepared = await pdpSubscription.prepareCartItem(values, {
+  const subscriptionCart = await pdpSubscription.prepareCartItem(values, {
     productData: events.lastPayload('pdp/data'),
     mode: isUpdateMode ? 'update' : 'add',
     itemUid,
   });
 
-  const { addProductsToCart, updateProductsFromCart } = await import(
-    '@dropins/storefront-cart/api.js'
-  );
-  const cartResult = isUpdateMode
-    ? await updateProductsFromCart([prepared.cartItem])
-    : await addProductsToCart([prepared.cartItem]);
-
-  await prepared.finalize({ cartResult, itemUid });
+  const { addProductsToCart } = await import('@dropins/storefront-cart/api.js');
+  const cartResult = await addProductsToCart([
+    { ...values, ...subscriptionCart.adobeExtras },
+  ]);
+  await subscriptionCart.finalize({ cartResult, itemUid });
 }
 ```
 
