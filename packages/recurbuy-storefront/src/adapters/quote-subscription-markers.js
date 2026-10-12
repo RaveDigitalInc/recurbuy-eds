@@ -125,9 +125,13 @@ export async function subscriptionDetailsFromQuoteMarker(marker) {
     && stampedValue > 0
     && typeof magentoValue === 'number'
     && magentoValue > stampedValue * 1.15;
-  const priceValue = magentoLooksLikeCatalog
-    ? stampedValue
-    : (Number.isFinite(magentoValue) ? magentoValue : (stampedValue ?? 0));
+  let priceValue = stampedValue ?? 0;
+  if (magentoLooksLikeCatalog) {
+    priceValue = stampedValue;
+  } else if (Number.isFinite(magentoValue)) {
+    priceValue = magentoValue;
+  }
+
   const currency = magentoLooksLikeCatalog
     ? (stamped?.currency || marker.currency || cached.currency || 'USD')
     : (marker.currency || stamped?.currency || cached.currency || 'USD');

@@ -170,27 +170,33 @@ export function createCartSubscriptionSession(options) {
     // still shows catalog/sale while stamped/synced plan unit is lower.
     const cartId = (await getCartData())?.id;
     if (cartId && typeof cartId === 'string') {
-      let nudged = false;
-      for (const [uid, details] of next.entries()) {
-        if (bundleRepriceAttempted.has(uid)) continue;
-        if (details?.purchaseType !== 'subscription') continue;
+      const repriceTargets = [...next.entries()].filter(([uid, details]) => {
+        if (bundleRepriceAttempted.has(uid)) return false;
+        if (details?.purchaseType !== 'subscription') return false;
         const planValue = details.price?.value;
-        if (!(typeof planValue === 'number' && planValue > 0)) continue;
+        if (!(typeof planValue === 'number' && planValue > 0)) return false;
         const item = list.find((entry) => entry?.uid === uid);
-        if (!item || item.itemType !== 'BundleCartItem') continue;
+        if (!item || item.itemType !== 'BundleCartItem') return false;
         const magento = item.price?.value;
-        if (!(typeof magento === 'number' && magento > planValue * 1.15)) continue;
+        return typeof magento === 'number' && magento > planValue * 1.15;
+      });
+
+      const nudgeResults = await Promise.all(repriceTargets.map(async ([uid]) => {
+        const item = list.find((entry) => entry?.uid === uid);
+        if (!item) return false;
         bundleRepriceAttempted.add(uid);
         const qty = Number(item.quantity) || 1;
         try {
           await nudgeQuantity(cartId, uid, qty + 1);
           await nudgeQuantity(cartId, uid, qty);
-          nudged = true;
+          return true;
         } catch {
           // Display still uses stamped/synced plan unit.
+          return false;
         }
-      }
-      if (nudged) {
+      }));
+
+      if (nudgeResults.some(Boolean)) {
         list = getCartItems() || list;
         next = await syncCartSubscriptionDetails(list, detailsByUid);
       }

@@ -126,14 +126,15 @@ export function selectionSkusFromAccsValues(values, product = null, selection = 
  * @returns {string[]}
  */
 function firstSkuList(...candidates) {
-  for (const candidate of candidates) {
-    if (!Array.isArray(candidate)) continue;
-    const skus = candidate
-      .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
-      .filter((entry) => entry !== '');
-    if (skus.length > 0) return skus;
-  }
-  return [];
+  const match = candidates.find((candidate) => {
+    if (!Array.isArray(candidate)) return false;
+    return candidate.some((entry) => typeof entry === 'string' && entry.trim() !== '');
+  });
+  if (!match) return [];
+
+  return match
+    .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+    .filter((entry) => entry !== '');
 }
 
 /**
