@@ -148,9 +148,9 @@ Prefer the **package root** (`@recurbuy/storefront-eds`). Subpaths under `./exte
 | Export | Role |
 |--------|------|
 | `attachPdpSubscription` / `mountProductDetailsSubscription` | Mount plan UI; `prepareCartItem` for AccS hooks |
-| `prepareSubscriptionCartItem` | Low-level prepare → Adobe → `finalize` |
-| `submitProductDetailsCart*` / `submitMiniPdpCartUpdate` | Optional one-shot helpers (not required) |
-| `addToCartWithSubscription` / `updateCartItemWithSubscription` | Convenience wrappers |
+| `prepareSubscriptionCartItem` | Canonical AccS add: pending + merge uid + `selection_skus`; then Adobe → `finalize` |
+| `submitProductDetailsCart*` / `submitMiniPdpCartUpdate` | Thin wrappers over prepare → Adobe → finalize |
+| `addToCartWithSubscription` / `updateCartItemWithSubscription` | Same convenience wrappers |
 | `createCartSubscriptionSession` | Cart / mini-cart slots + refresh |
 | `createCheckoutProductAttributesSlot` | Checkout line attrs |
 | `createCartModelCustomAttributesTransformer` | Cart drop-in transformer |
@@ -176,10 +176,12 @@ This package is **self-contained**: no imports of the merchant repo (`scripts/`,
 
 ## AccS pricing (why pending-add)
 
-1. GraphQL `addProductsToCart` cannot carry RecurBuy option ids in `entered_options`.
+1. GraphQL cannot carry RecurBuy option ids as fake catalog `entered_options`; merge uses real `accsCartMergeOption.uid`.
 2. Magento `sales_quote_item_save_before` runs **during** add — before cart item custom attributes exist.
-3. Library posts `POST …/pending-subscription-add` **before** Adobe add when a plan is selected.
-4. After add, library sets cart item custom attributes for place-after + cart UI.
+3. `prepareSubscriptionCartItem` posts pending-add (optional `selection_skus` for bundles), resolves merge uid, enriches the Adobe line.
+4. `finalize` sets cart item custom attributes + qty nudge for place-after + cart UI.
+
+Merchant blocks must not call pending / attrs / nudge ad hoc — only prepare → Adobe → finalize.
 
 ---
 

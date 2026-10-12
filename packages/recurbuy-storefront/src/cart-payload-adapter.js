@@ -1,4 +1,7 @@
-import { RECURBUY_SUBSCRIPTION_OPTION_ID } from './contract.js';
+import {
+  ACCS_CART_MERGE_OPTION_SKU,
+  RECURBUY_SUBSCRIPTION_OPTION_ID,
+} from './contract.js';
 import { endsLabelFromPlanFacts } from './format.js';
 import { saveSelectionForSku } from './selection-store.js';
 
@@ -36,11 +39,12 @@ function asEnteredOptionsList(enteredOptions) {
 
 /**
  * Checks whether an entered option is a legacy/fake RecurBuy subscription marker.
+ * AccS rejects non-catalog option UIDs — those must never be sent.
  *
  * @param {EnteredOption} option
  * @returns {boolean}
  */
-function isRecurbuySubscriptionMarker(option) {
+function isLegacyFakeSubscriptionMarker(option) {
   const uid = option?.uid;
   if (!uid) return false;
   if (uid === RECURBUY_SUBSCRIPTION_OPTION_ID) return true;
@@ -52,24 +56,40 @@ function isRecurbuySubscriptionMarker(option) {
 }
 
 /**
- * Filters out legacy RecurBuy subscription markers, returning only genuine catalog options.
- * AccS rejects non-catalog option UIDs in GraphQL entered_options.
+ * Filters out legacy RecurBuy fake markers, keeping genuine catalog options
+ * (including the AccS merge-key field option).
  *
  * @param {unknown} enteredOptions
  * @returns {EnteredOption[]}
  */
-function withoutSubscriptionMarker(enteredOptions) {
+function withoutLegacyFakeMarkers(enteredOptions) {
   return asEnteredOptionsList(enteredOptions).filter(
-    (option) => !isRecurbuySubscriptionMarker(option),
+    (option) => !isLegacyFakeSubscriptionMarker(option),
   );
+}
+
+/**
+ * @param {EnteredOption[]} list
+ * @param {string} mergeUid
+ * @param {string|number} subscriptionOptionId
+ * @returns {EnteredOption[]}
+ */
+function withAccsCartMergeOption(list, mergeUid, subscriptionOptionId) {
+  const uid = String(mergeUid || '').trim();
+  if (!uid) return list;
+
+  const value = String(subscriptionOptionId);
+  const withoutPrior = list.filter((option) => option.uid !== uid);
+  return [...withoutPrior, { uid, value }];
 }
 
 /**
  * Prepares PDP cart item payloads for add-to-cart.
  *
- * On AccS, RecurBuy subscription option IDs must NOT be sent in `enteredOptions`.
- * `enrich` strips any legacy markers from `enteredOptions` and persists the selection
- * in local state (`selection-store`) for UI and client-side tracking.
+ * AccS: legacy fake RecurBuy option UIDs are stripped. A real catalog field option
+ * uid from subscription-config {@code accsCartMergeOption} is appended for
+ * subscription lines so Magento does not qty-merge them onto one-time lines
+ * (SARP {@code addCustomOption} parity).
  */
 export const CartPayloadAdapter = {
   /**
@@ -78,6 +98,7 @@ export const CartPayloadAdapter = {
    * @param {{
    *   parentSku?: string,
    *   selectedPlan?: import('./contract.js').SubscriptionPlan,
+   *   accsCartMergeOptionUid?: string|null,
    * }} [options]
    * @returns {ValuesModel & { parentSku?: string, enteredOptions?: EnteredOption[] }}
    */
@@ -93,8 +114,7 @@ export const CartPayloadAdapter = {
     const parentSku = options.parentSku || valuesParentSku;
     const base = { ...configurationValues };
 
-    // Strip out any legacy RecurBuy fake markers from entered options
-    const cleanEnteredOptions = withoutSubscriptionMarker(
+    let cleanEnteredOptions = withoutLegacyFakeMarkers(
       configurationValues.enteredOptions,
     );
 
@@ -102,17 +122,18 @@ export const CartPayloadAdapter = {
       base.parentSku = parentSku;
     }
 
-    if (cleanEnteredOptions.length) {
-      base.enteredOptions = cleanEnteredOptions;
-    } else {
-      delete base.enteredOptions;
-    }
-
     // Save UI selection state
     if (!selection || selection.purchaseType === 'one_time') {
       saveSelectionForSku(sku, { purchaseType: 'one_time' });
       if (parentSku && parentSku !== sku) {
         saveSelectionForSku(parentSku, { purchaseType: 'one_time' });
+      }
+      // One-time: omit RecurBuy merge entered_option so Magento compareOptions
+      // differs from a subscription line that carries the catalog field value.
+      if (cleanEnteredOptions.length) {
+        base.enteredOptions = cleanEnteredOptions;
+      } else {
+        delete base.enteredOptions;
       }
       return base;
     }
@@ -139,6 +160,40 @@ export const CartPayloadAdapter = {
 
     saveSelectionForSku(sku, enrichedSelection);
 
+    const optionId = selection.subscriptionOptionId || selection.optionId || selection.planId;
+    cleanEnteredOptions = withAccsCartMergeOption(
+      cleanEnteredOptions,
+      options.accsCartMergeOptionUid,
+      optionId,
+    );
+
+    if (cleanEnteredOptions.length) {
+      base.enteredOptions = cleanEnteredOptions;
+    } else {
+      delete base.enteredOptions;
+    }
+
     return base;
   },
 };
+
+/**
+ * True when an AccS / Magento customizable option is the RecurBuy cart merge key
+ * (must not be shown as a shopper input on the PDP).
+ *
+ * @param {{ sku?: string, uid?: string, title?: string }|null|undefined} option
+ * @param {string|null|undefined} [knownMergeUid]
+ * @returns {boolean}
+ */
+export function isAccsCartMergeCustomizableOption(option, knownMergeUid = null) {
+  if (!option || typeof option !== 'object') return false;
+  const sku = typeof option.sku === 'string' ? option.sku.trim() : '';
+  if (sku && sku.toLowerCase() === ACCS_CART_MERGE_OPTION_SKU) {
+    return true;
+  }
+  const uid = typeof option.uid === 'string' ? option.uid.trim() : '';
+  if (knownMergeUid && uid && uid === String(knownMergeUid).trim()) {
+    return true;
+  }
+  return false;
+}

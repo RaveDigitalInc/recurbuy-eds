@@ -125,6 +125,12 @@ export const SUBSCRIPTION_ERROR_CODES = {
 /** Magento cart item attribute the price webhook / place-after reads. */
 export const RECURBUY_SUBSCRIPTION_OPTION_ID = 'recurbuy_subscription_option_id';
 
+/**
+ * AccS catalog field option sku (Admin REST). Mirrors Magento SARP
+ * {@code addCustomOption('aw_sarp2_subscription_type')} for quote-item merge identity.
+ */
+export const ACCS_CART_MERGE_OPTION_SKU = 'recurbuy_subscription_type';
+
 /** Optional start date on the quote line (`YYYY-MM-DD`). */
 export const RECURBUY_SUBSCRIPTION_START_DATE = 'recurbuy_subscription_start_date';
 
@@ -139,3 +145,11 @@ export const RECURBUY_BILLING_PERIOD = 'recurbuy_billing_period';
 
 /** Magento “Subscription End Date” value, e.g. `Cancel Anytime`. */
 export const RECURBUY_ENDS_LABEL = 'recurbuy_ends_label';
+
+/**
+ * Plan unit stamped at add (`{value}|{currency}`, e.g. `169.25|USD`).
+ * AccS dynamic-bundle GraphQL `prices.price` is the selection child sum; when Magento
+ * skips selection `save_before`, that sum stays catalog/sale. Cart UI reads this attr
+ * after navigation when Magento looks like catalog.
+ */
+export const RECURBUY_PLAN_UNIT = 'recurbuy_plan_unit';

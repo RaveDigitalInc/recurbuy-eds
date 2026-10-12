@@ -15,6 +15,7 @@ import {
 } from './bundle-price.js';
 import { SUBSCRIPTION_ERROR_CODES } from './contract.js';
 import { endsLabelFromPlanFacts } from './format.js';
+import { hideAccsCartMergeOptionElements } from './helpers/hide-accs-merge-option.js';
 import { saveSelectionForSku } from './selection-store.js';
 import {
   clearSubscriptionPriceBox,
@@ -155,6 +156,10 @@ export function mountSubscriptionOnPdp({
    * Magento bundles: AccS GraphQL priceRange is a catalog min/max, not configured
    * selection × optionPlanData. Selections come from Commerce on `pdp/data`;
    * RecurBuy only supplies percents. Recalc like Magento `bundle-options-mixin.js`.
+   *
+   * One-time must keep Magento final/sale selection totals (AccS shows those before
+   * RecurBuy loads). Subscription % still follows isUsedAdvancedPricing (regular when
+   * off) — Magento SARP mixin parity. Do not paint one-time with link/regular sum.
    */
   const resolveBundlePricedView = () => {
     const catalogPrices = getStandardPrices();
@@ -162,11 +167,11 @@ export function mountSubscriptionOnPdp({
       events.lastPayload('pdp/data', scopeEventOptions) ?? null
     );
     const useAdvanced = Boolean(eligibility?.isUsedAdvancedPricing);
-    const bundleOptions = eligibility?.productType === 'bundle'
+    const planBundleOptions = eligibility?.productType === 'bundle'
       ? extractAccsBundleOptions(product, useAdvanced)
       : [];
 
-    if (eligibility?.productType !== 'bundle' || !bundleOptions.length) {
+    if (eligibility?.productType !== 'bundle' || !planBundleOptions.length) {
       return {
         eligibilityForUi: eligibility,
         standardPrice: catalogPrices.standardPrice,
@@ -177,19 +182,46 @@ export function mountSubscriptionOnPdp({
     const currency = eligibility.currency
       || catalogPrices.standardPrice?.currency
       || 'USD';
-    const selectionState = resolveBundleSelectionState(bundleOptions);
-    const configuredTotal = calculateConfiguredTotal(bundleOptions, selectionState);
+    const selectionState = resolveBundleSelectionState(planBundleOptions);
+    // AccS already paints product.prices.final with specials for the current
+    // configuration (screenshot: $375.99 before RecurBuy mounts). Selection rows
+    // often only expose regular/link — do not replace AccS final with that sum.
+    const oneTimeBundleOptions = useAdvanced
+      ? planBundleOptions
+      : extractAccsBundleOptions(product, true);
+    const computedOneTimeTotal = calculateConfiguredTotal(
+      oneTimeBundleOptions.length ? oneTimeBundleOptions : planBundleOptions,
+      selectionState,
+    );
+    const regularConfiguredTotal = calculateConfiguredTotal(
+      planBundleOptions,
+      selectionState,
+    );
+    const accsFinal = catalogPrices.standardPrice;
+    const accsFinalValue = accsFinal?.value;
+    // When advanced pricing is off, selection rows usually only expose regular/link,
+    // so computed "final" collapses to the link sum — keep AccS parent final instead.
+    const childrenLackSale = !useAdvanced
+      && Math.abs(computedOneTimeTotal - regularConfiguredTotal) < 0.02;
+    const oneTimeTotal = (
+      typeof accsFinalValue === 'number'
+      && Number.isFinite(accsFinalValue)
+      && accsFinalValue > 0
+      && childrenLackSale
+    )
+      ? accsFinalValue
+      : computedOneTimeTotal;
 
     const plans = (eligibility.plans || []).map((plan) => {
       const optionId = Number(plan.id);
       const regularValue = calculateSubscriptionPrice(
-        bundleOptions,
+        planBundleOptions,
         selectionState,
         optionId,
         eligibility.optionPlanData,
       );
       const trialValue = calculateTrialPrice(
-        bundleOptions,
+        planBundleOptions,
         selectionState,
         optionId,
         eligibility.optionPlanData,
@@ -224,8 +256,11 @@ export function mountSubscriptionOnPdp({
         ...eligibility,
         plans,
       },
-      standardPrice: { value: configuredTotal, currency },
-      standardRegularPrice: null,
+      standardPrice: { value: oneTimeTotal, currency },
+      standardRegularPrice: !useAdvanced
+        && regularConfiguredTotal > oneTimeTotal + 0.009
+        ? { value: regularConfiguredTotal, currency }
+        : (catalogPrices.standardRegularPrice || null),
     };
   };
 
@@ -313,6 +348,8 @@ export function mountSubscriptionOnPdp({
     }
 
     notify();
+    // AccS may briefly paint the catalog merge-key field; hide it (not a shopper input).
+    hideAccsCartMergeOptionElements(selectorRoot?.ownerDocument || document);
   };
 
   const applyEligibilityResponse = (response) => {
@@ -465,6 +502,7 @@ export function mountSubscriptionOnPdp({
 
   const dataListener = events.on('pdp/data', () => {
     scheduleRefresh();
+    hideAccsCartMergeOptionElements(selectorRoot?.ownerDocument || document);
   }, eventOptions);
 
   // Bundle selection changes only need Magento-style client recalc — not a config refetch.

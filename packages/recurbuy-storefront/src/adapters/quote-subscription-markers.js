@@ -3,6 +3,7 @@ import {
   RECURBUY_BILLING_PERIOD,
   RECURBUY_ENDS_LABEL,
   RECURBUY_PLAN_LABEL,
+  RECURBUY_PLAN_UNIT,
   RECURBUY_SUBSCRIPTION_OPTION_ID,
   RECURBUY_SUBSCRIPTION_START_DATE,
 } from '../contract.js';
@@ -29,7 +30,9 @@ const QUOTE_SUBSCRIPTION_MARKERS_QUERY = `
 `;
 
 /**
- * Cart-item custom attributes are the quote's subscription SoR.
+ * Cart-item custom attributes are the quote's subscription SoR for markers.
+ * Unit price: Magento GraphQL {@code prices.price} when it matches the plan;
+ * otherwise stamped {@code recurbuy_plan_unit} (dynamic-bundle child-sum lag).
  *
  * @param {string} cartId
  * @returns {Promise<Map<string, {
@@ -41,6 +44,7 @@ const QUOTE_SUBSCRIPTION_MARKERS_QUERY = `
  *   planLabel: string,
  *   period: import('../contract.js').SubscriptionPeriod|null,
  *   endsLabel: string,
+ *   stampedPlanUnit: { value: number, currency: string }|null,
  * }>>}
  */
 export async function loadQuoteSubscriptionMarkers(cartId) {
@@ -67,6 +71,7 @@ export async function loadQuoteSubscriptionMarkers(cartId) {
     if (!uid || !optionId || optionId === '0') return;
 
     const unitPrice = Number(item?.prices?.price?.value);
+    const stampedPlanUnit = parsePlanUnit(attributeValue(attrs, RECURBUY_PLAN_UNIT));
     markers.set(uid, {
       optionId,
       catalogProductId: catalogProductId(item),
@@ -78,6 +83,7 @@ export async function loadQuoteSubscriptionMarkers(cartId) {
       planLabel: attributeValue(attrs, RECURBUY_PLAN_LABEL),
       period: parseQuoteBillingPeriod(attributeValue(attrs, RECURBUY_BILLING_PERIOD)),
       endsLabel: attributeValue(attrs, RECURBUY_ENDS_LABEL),
+      stampedPlanUnit,
     });
   });
 
@@ -99,7 +105,9 @@ export async function loadQuoteSubscriptionMarkers(cartId) {
  */
 export async function subscriptionDetailsFromQuoteMarker(marker) {
   // Prefer presentation written onto the quote at add time. Cached PDP config is
-  // only a fallback for lines stamped before those attributes existed.
+  // only a fallback for labels/period on lines stamped before those attrs existed.
+  // Magento GraphQL unit is SoR when it matches the plan; stamped plan unit covers
+  // AccS dynamic-bundle child-sum lag after navigation.
   const cached = needsCachedPresentation(marker)
     ? presentationFromCachedConfig(marker.catalogProductId, marker.optionId)
     : emptyPresentation();
@@ -110,7 +118,19 @@ export async function subscriptionDetailsFromQuoteMarker(marker) {
   const period = marker.period || cached.period || { value: 1, unit: 'month' };
   const endsLabel = marker.endsLabel || cached.endsLabel;
   const startDate = marker.startDate || cached.startDate;
-  const priceValue = marker.unitPrice ?? cached.priceValue;
+  const stamped = marker.stampedPlanUnit;
+  const magentoValue = marker.unitPrice;
+  const stampedValue = stamped?.value;
+  const magentoLooksLikeCatalog = typeof stampedValue === 'number'
+    && stampedValue > 0
+    && typeof magentoValue === 'number'
+    && magentoValue > stampedValue * 1.15;
+  const priceValue = magentoLooksLikeCatalog
+    ? stampedValue
+    : (Number.isFinite(magentoValue) ? magentoValue : (stampedValue ?? 0));
+  const currency = magentoLooksLikeCatalog
+    ? (stamped?.currency || marker.currency || cached.currency || 'USD')
+    : (marker.currency || stamped?.currency || cached.currency || 'USD');
 
   return {
     purchaseType: 'subscription',
@@ -120,11 +140,26 @@ export async function subscriptionDetailsFromQuoteMarker(marker) {
     period,
     price: {
       value: Number.isFinite(priceValue) ? priceValue : 0,
-      currency: marker.currency || cached.currency || 'USD',
+      currency,
     },
     ...(startDate ? { startDate } : {}),
     ...(endsLabel ? { endsLabel } : {}),
   };
+}
+
+/**
+ * @param {string} raw
+ * @returns {{ value: number, currency: string }|null}
+ */
+function parsePlanUnit(raw) {
+  if (typeof raw !== 'string' || !raw.trim()) return null;
+  const [valuePart, currencyPart] = raw.trim().split('|');
+  const value = Number(valuePart);
+  if (!Number.isFinite(value) || value < 0) return null;
+  const currency = typeof currencyPart === 'string' && currencyPart.trim()
+    ? currencyPart.trim()
+    : 'USD';
+  return { value, currency };
 }
 
 /**

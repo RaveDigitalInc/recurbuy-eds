@@ -1,12 +1,17 @@
 export {
+  ACCS_CART_MERGE_OPTION_SKU,
   RECURBUY_BILLING_PERIOD,
   RECURBUY_ENDS_LABEL,
   RECURBUY_PLAN_LABEL,
+  RECURBUY_PLAN_UNIT,
   RECURBUY_SUBSCRIPTION_OPTION_ID,
   RECURBUY_SUBSCRIPTION_START_DATE,
   SUBSCRIPTION_ERROR_CODES,
 } from './contract.js';
-export { CartPayloadAdapter } from './cart-payload-adapter.js';
+export {
+  CartPayloadAdapter,
+  isAccsCartMergeCustomizableOption,
+} from './cart-payload-adapter.js';
 export {
   getSubscriptionStorefrontUrl,
   getSubscriptionConnectionToken,
@@ -40,6 +45,7 @@ export {
   decodeAccsBundleOptionUid,
   defaultSelectionState,
   extractAccsBundleOptions,
+  selectionSkusFromAccsValues,
   selectionStateFromAccsOptionUids,
 } from './bundle-price.js';
 export {

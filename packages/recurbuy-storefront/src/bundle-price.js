@@ -50,6 +50,110 @@ export function selectionStateFromAccsOptionUids(optionsUIDs) {
 }
 
 /**
+ * Child SKUs for the current AccS bundle pick (pending-add seed).
+ * Prefers explicit lists on values/selection; otherwise matches `optionsUIDs`
+ * against AccS PDP option items (`product.sku`).
+ *
+ * @param {Record<string, unknown>|null|undefined} values
+ * @param {any} [product] AccS `pdp/data` product model
+ * @param {{ selectionSkus?: unknown }|null|undefined} [selection]
+ * @returns {string[]}
+ */
+export function selectionSkusFromAccsValues(values, product = null, selection = null) {
+  const explicit = firstSkuList(
+    selection?.selectionSkus,
+    values?.selectionSkus,
+    values?.selection_skus,
+  );
+  if (explicit.length > 0) return explicit;
+
+  const optionsUIDs = Array.isArray(values?.optionsUIDs) ? values.optionsUIDs : [];
+  if (optionsUIDs.length === 0 || !product || typeof product !== 'object') {
+    return [];
+  }
+
+  const wanted = new Set();
+  optionsUIDs.forEach((uid) => {
+    const decoded = decodeAccsBundleOptionUid(
+      typeof uid === 'string' ? uid : String(uid ?? ''),
+    );
+    if (decoded) {
+      wanted.add(`${decoded.optionId}:${decoded.selectionId}`);
+    }
+  });
+  if (wanted.size === 0) return [];
+
+  const options = Array.isArray(product.options) ? product.options : [];
+  /** @type {string[]} */
+  const skus = [];
+
+  options.forEach((option) => {
+    const optionId = Number(option?.id);
+    if (!Number.isFinite(optionId) || optionId <= 0) return;
+
+    let items = [];
+    if (Array.isArray(option.items)) {
+      items = option.items;
+    } else if (Array.isArray(option.values)) {
+      items = option.values;
+    }
+
+    items.forEach((item) => {
+      let uid = '';
+      if (typeof item?.id === 'string') {
+        uid = item.id;
+      } else if (typeof item?.value === 'string') {
+        uid = item.value;
+      }
+      const decoded = decodeAccsBundleOptionUid(uid);
+      const selectionId = decoded?.selectionId
+        ?? Number(item?.selection_id)
+        ?? 0;
+      if (!selectionId || !wanted.has(`${optionId}:${selectionId}`)) return;
+
+      const sku = readSelectionProductSku(item);
+      if (sku && !skus.includes(sku)) {
+        skus.push(sku);
+      }
+    });
+  });
+
+  return skus;
+}
+
+/**
+ * @param {...unknown} candidates
+ * @returns {string[]}
+ */
+function firstSkuList(...candidates) {
+  for (const candidate of candidates) {
+    if (!Array.isArray(candidate)) continue;
+    const skus = candidate
+      .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+      .filter((entry) => entry !== '');
+    if (skus.length > 0) return skus;
+  }
+  return [];
+}
+
+/**
+ * @param {any} item
+ * @returns {string}
+ */
+function readSelectionProductSku(item) {
+  const product = item?.product;
+  if (product && typeof product === 'object') {
+    if (typeof product.sku === 'string' && product.sku.trim() !== '') {
+      return product.sku.trim();
+    }
+  }
+  if (typeof item?.sku === 'string' && item.sku.trim() !== '') {
+    return item.sku.trim();
+  }
+  return '';
+}
+
+/**
  * @typedef {Object} AccsBundleSelection
  * @property {number} selection_id
  * @property {string} [uid]

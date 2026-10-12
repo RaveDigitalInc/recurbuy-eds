@@ -11,6 +11,7 @@ import { getValidSubscriptionConfig, getSubscriptionTimeoutMs } from '../config.
  * @param {string} params.sku Product SKU
  * @param {number|string} params.subscriptionOptionId Selected RecurBuy subscription option ID
  * @param {number|string} params.catalogProductId Catalog product ID
+ * @param {string[]} [params.selectionSkus] Bundle child SKUs (price webhook seed)
  * @returns {Promise<Record<string, unknown>>} Response payload JSON
  */
 export async function postPendingSubscriptionAdd({
@@ -18,6 +19,7 @@ export async function postPendingSubscriptionAdd({
   sku,
   subscriptionOptionId,
   catalogProductId,
+  selectionSkus = null,
 }) {
   const normalizedCartId = typeof cartId === 'string' ? cartId.trim() : '';
   if (!normalizedCartId || !sku || !subscriptionOptionId || !catalogProductId) {
@@ -43,6 +45,22 @@ export async function postPendingSubscriptionAdd({
     headers.Authorization = `Bearer ${userToken}`;
   }
 
+  /** @type {Record<string, unknown>} */
+  const body = {
+    cart_id: normalizedCartId,
+    sku,
+    subscription_option_id: subscriptionOptionId,
+    catalog_product_id: catalogProductId,
+  };
+  if (Array.isArray(selectionSkus)) {
+    const skus = selectionSkus
+      .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+      .filter((entry) => entry !== '');
+    if (skus.length > 0) {
+      body.selection_skus = skus;
+    }
+  }
+
   const controller = new AbortController();
   const timeoutMs = getSubscriptionTimeoutMs();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -52,12 +70,7 @@ export async function postPendingSubscriptionAdd({
       method: 'POST',
       credentials: 'omit',
       headers,
-      body: JSON.stringify({
-        cart_id: normalizedCartId,
-        sku,
-        subscription_option_id: subscriptionOptionId,
-        catalog_product_id: catalogProductId,
-      }),
+      body: JSON.stringify(body),
       signal: controller.signal,
     });
 

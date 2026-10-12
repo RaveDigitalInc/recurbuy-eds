@@ -249,13 +249,29 @@ function mergeQuoteDetailsWithSnapshot(quoteDetails, optimistic) {
   const keepOptimisticLabel = isPlaceholderPlanLabel(quoteDetails.planLabel)
     && !isPlaceholderPlanLabel(optimistic.planLabel);
 
+  // Magento quote unit is SoR when it matches the plan. AccS dynamic bundles often
+  // skip selection save_before after a one-time of the same picks, so GraphQL
+  // prices.price stays the catalog/sale child sum while the plan unit is half of
+  // link. Prefer same-document snapshot, else quoteDetails already prefers stamped
+  // recurbuy_plan_unit when Magento looks like catalog.
+  const magentoPrice = quoteDetails.price;
+  const planPrice = optimistic.price;
+  const magentoValue = typeof magentoPrice?.value === 'number' ? magentoPrice.value : null;
+  const planValue = typeof planPrice?.value === 'number' ? planPrice.value : null;
+  const magentoLooksLikeCatalog = planValue != null
+    && magentoValue != null
+    && planValue > 0
+    && magentoValue > planValue * 1.15;
+
   return {
     ...quoteDetails,
     planLabel: keepOptimisticLabel ? optimistic.planLabel : quoteDetails.planLabel,
     period: quoteDetails.period || optimistic.period,
     endsLabel: quoteDetails.endsLabel || optimistic.endsLabel,
     startDate: quoteDetails.startDate || optimistic.startDate,
-    price: quoteDetails.price || optimistic.price,
+    price: magentoLooksLikeCatalog
+      ? planPrice
+      : (magentoPrice || planPrice),
   };
 }
 

@@ -3,6 +3,7 @@ import {
   RECURBUY_BILLING_PERIOD,
   RECURBUY_ENDS_LABEL,
   RECURBUY_PLAN_LABEL,
+  RECURBUY_PLAN_UNIT,
   RECURBUY_SUBSCRIPTION_OPTION_ID,
   RECURBUY_SUBSCRIPTION_START_DATE,
 } from './contract.js';
@@ -154,6 +155,7 @@ export async function setSubscriptionAttributes(
     serializeSubscriptionPeriod(presentation.period),
   );
   pushAttribute(customAttributes, RECURBUY_ENDS_LABEL, presentation.endsLabel);
+  pushAttribute(customAttributes, RECURBUY_PLAN_UNIT, serializePlanUnit(presentation.planUnit));
 
   const response = await fetchGraphQl(SET_CUSTOM_ATTRIBUTES_MUTATION, {
     variables: {
@@ -189,6 +191,7 @@ function normalizePresentation(value) {
       planLabel: '',
       period: null,
       endsLabel: '',
+      planUnit: null,
     };
   }
 
@@ -198,6 +201,7 @@ function normalizePresentation(value) {
       planLabel: '',
       period: null,
       endsLabel: '',
+      planUnit: null,
     };
   }
 
@@ -206,7 +210,23 @@ function normalizePresentation(value) {
     planLabel: typeof value.planLabel === 'string' ? value.planLabel.trim() : '',
     period: value.period && typeof value.period === 'object' ? value.period : null,
     endsLabel: typeof value.endsLabel === 'string' ? value.endsLabel.trim() : '',
+    planUnit: value.planUnit && typeof value.planUnit === 'object' ? value.planUnit : null,
   };
+}
+
+/**
+ * @param {{ value?: number, currency?: string }|null|undefined} planUnit
+ * @returns {string}
+ */
+function serializePlanUnit(planUnit) {
+  const value = typeof planUnit?.value === 'number' && Number.isFinite(planUnit.value)
+    ? planUnit.value
+    : null;
+  if (value == null) return '';
+  const currency = typeof planUnit?.currency === 'string' && planUnit.currency.trim()
+    ? planUnit.currency.trim()
+    : 'USD';
+  return `${value}|${currency}`;
 }
 
 /**
@@ -233,6 +253,22 @@ export async function nudgeQuantity(cartId, itemUid, qty) {
     throw new Error('[RecurBuy] Missing required parameters for nudgeQuantity.');
   }
 
+  return setCartItemQuantity(cartId, itemUid, qty);
+}
+
+/**
+ * Sets cart item quantity (use {@code 0} to remove the line).
+ *
+ * @param {string} cartId Masked Commerce cart ID
+ * @param {string} itemUid GraphQL item UID
+ * @param {number} qty New quantity ({@code 0} removes)
+ * @returns {Promise<Object>} GraphQL response data
+ */
+export async function setCartItemQuantity(cartId, itemUid, qty) {
+  if (!cartId || !itemUid || qty == null || Number(qty) < 0) {
+    throw new Error('[RecurBuy] Missing required parameters for setCartItemQuantity.');
+  }
+
   const response = await fetchGraphQl(UPDATE_CART_ITEMS_MUTATION, {
     variables: {
       cartId,
@@ -245,7 +281,18 @@ export async function nudgeQuantity(cartId, itemUid, qty) {
     },
   });
 
-  return readGraphQlData(response, 'nudging cart item quantity');
+  return readGraphQlData(response, 'updating cart item quantity');
+}
+
+/**
+ * Removes a cart line by GraphQL uid ({@code updateCartItems} quantity 0).
+ *
+ * @param {string} cartId
+ * @param {string} itemUid
+ * @returns {Promise<Object>}
+ */
+export async function removeCartItemByUid(cartId, itemUid) {
+  return setCartItemQuantity(cartId, itemUid, 0);
 }
 
 /**

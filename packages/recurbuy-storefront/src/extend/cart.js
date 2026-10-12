@@ -3,10 +3,13 @@
  * Owns subscription detail maps and paints Adobe CartSummary slots.
  */
 
+import { getCartData } from '@dropins/storefront-cart/api.js';
 import { appendCartProductAttributesSlot } from '../helpers/cart-product-attributes-slot.js';
+import { hideAccsCartMergeOptionConfigurations } from '../helpers/hide-accs-merge-option.js';
 import { ensureRecurBuyStyles } from '../helpers/ensure-styles.js';
 import { createSubscriptionSummaryUpdater } from '../cart-order-summary.js';
 import { fetchCheckoutConfig } from '../adapters/storefront-checkout-config-adapter.js';
+import { nudgeQuantity } from '../cart-item-attributes.js';
 import {
   applySubscriptionLinePrices,
   clearCartSubscriptionDetails,
@@ -41,6 +44,8 @@ export function createCartSubscriptionSession(options) {
   /** @type {Record<string, unknown>|null} */
   let checkoutConfig = null;
   let checkoutConfigCartId = null;
+  /** @type {Set<string>} */
+  const bundleRepriceAttempted = new Set();
 
   const applyPrices = (uid, details, item) => {
     applySubscriptionLinePrices(
@@ -65,12 +70,18 @@ export function createCartSubscriptionSession(options) {
    * @param {Object} ctx
    * @param {'cart'|'mini'} variant
    */
+  const hideInternalCartMarks = () => {
+    hideAccsCartMergeOptionConfigurations(document);
+    requestAnimationFrame(() => hideAccsCartMergeOptionConfigurations(document));
+  };
+
   const paintAttributesSlot = (ctx, variant = 'cart') => {
     const { item } = ctx;
     const uid = item?.uid;
     if (ctx.querySelector?.('.cart-subscription-details')) return;
 
     appendCartProductAttributesSlot(ctx, item, { format: 'cart' });
+    hideInternalCartMarks();
 
     const subscriptionRoot = document.createElement('div');
     subscriptionRoot.className = variant === 'mini'
@@ -152,11 +163,43 @@ export function createCartSubscriptionSession(options) {
 
   const refreshDetails = async (items, refreshOptions = {}) => {
     const variant = refreshOptions.variant === 'mini' ? 'mini' : 'cart';
-    const next = await syncCartSubscriptionDetails(items, detailsByUid);
+    let list = items || getCartItems() || [];
+    let next = await syncCartSubscriptionDetails(list, detailsByUid);
+
+    // One attempt per uid: force AccS to re-save bundle selections when GraphQL
+    // still shows catalog/sale while stamped/synced plan unit is lower.
+    const cartId = (await getCartData())?.id;
+    if (cartId && typeof cartId === 'string') {
+      let nudged = false;
+      for (const [uid, details] of next.entries()) {
+        if (bundleRepriceAttempted.has(uid)) continue;
+        if (details?.purchaseType !== 'subscription') continue;
+        const planValue = details.price?.value;
+        if (!(typeof planValue === 'number' && planValue > 0)) continue;
+        const item = list.find((entry) => entry?.uid === uid);
+        if (!item || item.itemType !== 'BundleCartItem') continue;
+        const magento = item.price?.value;
+        if (!(typeof magento === 'number' && magento > planValue * 1.15)) continue;
+        bundleRepriceAttempted.add(uid);
+        const qty = Number(item.quantity) || 1;
+        try {
+          await nudgeQuantity(cartId, uid, qty + 1);
+          await nudgeQuantity(cartId, uid, qty);
+          nudged = true;
+        } catch {
+          // Display still uses stamped/synced plan unit.
+        }
+      }
+      if (nudged) {
+        list = getCartItems() || list;
+        next = await syncCartSubscriptionDetails(list, detailsByUid);
+      }
+    }
+
     detailsByUid.clear();
     next.forEach((details, uid) => {
       detailsByUid.set(uid, details);
-      const item = (items || []).find((entry) => entry?.uid === uid);
+      const item = list.find((entry) => entry?.uid === uid);
       applyPrices(uid, details, item);
       const root = rootsByUid.get(uid);
       if (root) renderCartSubscriptionDetails(root, details, { variant });
@@ -165,8 +208,9 @@ export function createCartSubscriptionSession(options) {
       if (!next.has(uid)) clearCartSubscriptionDetails(root);
     });
     if (variant === 'mini') {
-      paintMiniPrices(items);
+      paintMiniPrices(list);
     }
+    hideInternalCartMarks();
   };
 
   const refreshCheckoutConfig = async (cartData) => {
@@ -238,5 +282,7 @@ export function createCartSubscriptionSession(options) {
 export function createCheckoutProductAttributesSlot() {
   return (ctx) => {
     appendCartProductAttributesSlot(ctx, ctx.item, { format: 'cart' });
+    hideAccsCartMergeOptionConfigurations(document);
+    requestAnimationFrame(() => hideAccsCartMergeOptionConfigurations(document));
   };
 }

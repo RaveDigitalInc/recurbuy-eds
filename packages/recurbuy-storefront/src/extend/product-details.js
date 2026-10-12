@@ -3,16 +3,16 @@
  * Merchant keeps Adobe PDP containers and alerts; RecurBuy owns selector / price / AccS add.
  */
 
+import {
+  addProductsToCart,
+  updateProductsFromCart,
+} from '@dropins/storefront-cart/api.js';
 import { getSubscriptionOptionIdFromCartItem } from '../cart-line-custom-attributes.js';
 import { CartPayloadAdapter } from '../cart-payload-adapter.js';
 import { ensureRecurBuyStyles } from '../helpers/ensure-styles.js';
 import { mountSubscriptionOnPdp } from '../mount-pdp.js';
 import { getSelectionForCartItem } from '../selection-store.js';
-import {
-  addToCartWithSubscription,
-  prepareSubscriptionCartItem,
-  updateCartItemWithSubscription,
-} from '../subscription-add-to-cart.js';
+import { prepareSubscriptionCartItem } from '../subscription-add-to-cart.js';
 
 /**
  * @typedef {Object} ProductDetailsSubscriptionRoots
@@ -91,7 +91,8 @@ export function attachPdpSubscription(options) {
      *   itemUid?: string|null,
      * }} [options]
      */
-    prepareCartItem(values, prepareOptions = {}) {
+    async prepareCartItem(values, prepareOptions = {}) {
+      // prepareSubscriptionCartItem owns merge uid + pending selection_skus.
       return prepareSubscriptionCartItem({
         values,
         selection: controller.getSelection(),
@@ -197,12 +198,13 @@ export function resolveCartItemInitialSelection(cartItem) {
 }
 
 /**
- * Build the AccS cart line + run pending-add / attributes add or update.
+ * Convenience wrapper: prepare → Adobe add/update → finalize only.
+ * Prefer controller.prepareCartItem + native drop-in calls when the block owns Adobe.
  *
  * @param {{
  *   values: Record<string, unknown>|null|undefined,
  *   selection: import('../contract.js').SubscriptionSelection|null|undefined,
- *   productData: { sku?: string, externalId?: string, name?: string }|null|undefined,
+ *   productData: { sku?: string, externalId?: string, id?: string, name?: string }|null|undefined,
  *   mode: 'add'|'update',
  *   itemUid?: string|null,
  * }} input
@@ -217,39 +219,30 @@ export async function submitProductDetailsCart(input) {
     itemUid,
   } = input;
 
-  const catalogProductId = productData?.externalId || productData?.id;
-  const cartItem = CartPayloadAdapter.enrich(
-    values || { sku: productData?.sku, quantity: 1 },
+  const prepared = await prepareSubscriptionCartItem({
+    values: values || { sku: productData?.sku, quantity: 1 },
     selection,
-    {
-      parentSku: productData?.sku,
-      selectedPlan: selection?.selectedPlan,
-    },
-  );
+    productData,
+    mode: mode === 'update' ? 'update' : 'add',
+    itemUid,
+  });
 
   if (mode === 'update') {
-    await updateCartItemWithSubscription({
-      cartItem,
-      itemUid,
-      selection,
-      catalogProductId,
-    });
+    const updateResult = await updateProductsFromCart([prepared.cartItem]);
+    await prepared.finalize({ cartResult: updateResult, itemUid });
     return {
       ok: true,
-      cartItem,
+      cartItem: prepared.cartItem,
       productName: productData?.name || 'This product',
     };
   }
 
-  const added = await addToCartWithSubscription({
-    cartItem,
-    selection,
-    catalogProductId,
-  });
+  const added = await addProductsToCart([prepared.cartItem]);
+  await prepared.finalize({ cartResult: added });
 
   return {
     ok: Boolean(added),
-    cartItem,
+    cartItem: prepared.cartItem,
     productName: productData?.name || 'This product',
   };
 }

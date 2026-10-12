@@ -6,6 +6,11 @@ import {
   updateProductsFromCart as adobeUpdateProductsFromCart,
 } from '@dropins/storefront-cart/api.js';
 import { postPendingSubscriptionAdd } from './adapters/storefront-pending-add-adapter.js';
+import {
+  loadCachedSubscriptionConfigSoft,
+  peekCachedSubscriptionConfig,
+} from './adapters/subscription-config-cache.js';
+import { selectionSkusFromAccsValues } from './bundle-price.js';
 import { CartPayloadAdapter } from './cart-payload-adapter.js';
 import {
   findItemUid,
@@ -15,9 +20,38 @@ import {
 import { saveSelectionForSku, saveSelectionForUid } from './selection-store.js';
 
 /**
+ * @param {string} cartId
+ * @param {string} itemUid
+ * @param {number} quantity
+ * @param {number} planUnitValue
+ */
+async function repriceBundleIfStillCatalog(cartId, itemUid, quantity, planUnitValue) {
+  try {
+    const cart = await getCartData();
+    const line = (cart?.items || []).find((entry) => entry?.uid === itemUid);
+    if (!line || line.itemType !== 'BundleCartItem') return;
+    const magento = typeof line.price?.value === 'number' ? line.price.value : null;
+    if (magento == null || !(magento > planUnitValue * 1.15)) return;
+
+    await nudgeQuantity(cartId, itemUid, quantity + 1);
+    await nudgeQuantity(cartId, itemUid, quantity);
+  } catch {
+    // Best-effort: stamped plan unit still paints the mini-cart after navigation.
+  }
+}
+
+/**
  * AccS GraphQL: sales_quote_item_save_before runs on addProductsToCart
  * *before* setCustomAttributesOnCartItem. Pending-add is required so the
  * price webhook knows the option on first save. Attrs+nudge remain as backup.
+ *
+ * Mixed one-time + subscription of the same variant: Magento SARP uses
+ * addCustomOption('aw_sarp2_subscription_type'). AccS equivalent is a real
+ * catalog field option passed as entered_options (see CartPayloadAdapter +
+ * subscription-config accsCartMergeOption).
+ *
+ * Canonical merchant path: prepareSubscriptionCartItem → Adobe add/update →
+ * prepared.finalize. Convenience wrappers only delegate to that sequence.
  */
 const USE_PENDING_SUBSCRIPTION_ADD = true;
 
@@ -39,6 +73,37 @@ function resolveSubscriptionOptionId(selection) {
 function isSubscriptionSelection(selection) {
   const subscriptionOptionId = resolveSubscriptionOptionId(selection);
   return Boolean(subscriptionOptionId && Number(subscriptionOptionId) >= 1);
+}
+
+/**
+ * @param {{ externalId?: string, id?: string }|null|undefined} productData
+ * @returns {string|null}
+ */
+function peekAccsCartMergeOptionUid(productData) {
+  const productId = productData?.externalId || productData?.id;
+  const config = peekCachedSubscriptionConfig(productId);
+  const merge = config?.accsCartMergeOption;
+  if (!merge || typeof merge !== 'object') return null;
+  const uid = /** @type {{ uid?: unknown }} */ (merge).uid;
+  return typeof uid === 'string' && uid.trim() !== '' ? uid.trim() : null;
+}
+
+/**
+ * Resolve AccS merge-key option uid from subscription-config when callers omit it.
+ *
+ * @param {{ externalId?: string, id?: string }|null|undefined} productData
+ * @param {string|null|undefined} explicitUid
+ * @returns {Promise<string|null>}
+ */
+async function resolveAccsCartMergeOptionUid(productData, explicitUid = null) {
+  if (typeof explicitUid === 'string' && explicitUid.trim() !== '') {
+    return explicitUid.trim();
+  }
+  const cached = peekAccsCartMergeOptionUid(productData);
+  if (cached) return cached;
+  const productId = productData?.externalId || productData?.id;
+  await loadCachedSubscriptionConfigSoft(productId);
+  return peekAccsCartMergeOptionUid(productData);
 }
 
 /**
@@ -73,9 +138,16 @@ export async function resolveCartId() {
  * @param {string} sku
  * @param {Object} selection
  * @param {number|string} catalogProductId
+ * @param {string[]} [selectionSkus]
  * @returns {Promise<string|number>}
  */
-async function registerPendingSubscription(cartId, sku, selection, catalogProductId) {
+async function registerPendingSubscription(
+  cartId,
+  sku,
+  selection,
+  catalogProductId,
+  selectionSkus = null,
+) {
   const subscriptionOptionId = resolveSubscriptionOptionId(selection);
 
   if (!USE_PENDING_SUBSCRIPTION_ADD) {
@@ -94,6 +166,7 @@ async function registerPendingSubscription(cartId, sku, selection, catalogProduc
     sku,
     subscriptionOptionId,
     catalogProductId,
+    selectionSkus,
   });
 
   return subscriptionOptionId;
@@ -112,13 +185,26 @@ async function persistSubscriptionLine(cartId, itemUid, subscriptionOptionId, se
     || selection?.subscriptionStartDate
     || snapshot.startDate;
 
+  const planUnit = snapshot.price && typeof snapshot.price.value === 'number'
+    ? snapshot.price
+    : null;
+
   await setSubscriptionAttributes(cartId, itemUid, subscriptionOptionId, {
     startDate,
     planLabel: snapshot.planLabel,
     period: snapshot.period,
     endsLabel: snapshot.endsLabel,
+    planUnit,
   });
-  await nudgeQuantity(cartId, itemUid, quantity || 1);
+  const qty = quantity || 1;
+  await nudgeQuantity(cartId, itemUid, qty);
+
+  // AccS dynamic bundles often skip selection save_before when the same picks are
+  // already in the quote. GraphQL then keeps the catalog/sale child sum. A qty
+  // bump forces Magento to re-save children so the price webhook can plan-price them.
+  if (planUnit && typeof planUnit.value === 'number' && planUnit.value > 0) {
+    await repriceBundleIfStillCatalog(cartId, itemUid, qty, planUnit.value);
+  }
 }
 
 /**
@@ -132,6 +218,7 @@ async function persistSubscriptionLine(cartId, itemUid, subscriptionOptionId, se
  *   productData?: { sku?: string, externalId?: string, id?: string, name?: string }|null,
  *   mode?: 'add'|'update',
  *   itemUid?: string|null,
+ *   accsCartMergeOptionUid?: string|null,
  * }} input
  * @returns {Promise<{
  *   cartItem: Record<string, unknown>,
@@ -149,15 +236,25 @@ export async function prepareSubscriptionCartItem(input) {
     productData = null,
     mode = 'add',
     itemUid = null,
+    accsCartMergeOptionUid = null,
   } = input;
 
   const catalogProductId = productData?.externalId || productData?.id;
+  const resolvedMergeUid = isSubscriptionSelection(selection)
+    ? await resolveAccsCartMergeOptionUid(productData, accsCartMergeOptionUid)
+    : null;
+  const lineValues = values || { sku: productData?.sku, quantity: 1 };
+  const selectionSkus = isSubscriptionSelection(selection)
+    ? selectionSkusFromAccsValues(lineValues, productData, selection)
+    : [];
+
   let cartItem = CartPayloadAdapter.enrich(
-    values || { sku: productData?.sku, quantity: 1 },
+    lineValues,
     selection,
     {
       parentSku: productData?.sku,
       selectedPlan: selection?.selectedPlan,
+      accsCartMergeOptionUid: resolvedMergeUid,
     },
   );
 
@@ -195,6 +292,7 @@ export async function prepareSubscriptionCartItem(input) {
     cartItem.sku,
     selection,
     catalogProductId,
+    selectionSkus,
   );
 
   return {
@@ -240,9 +338,11 @@ export async function prepareSubscriptionCartItem(input) {
  * Convenience wrapper: prepare + Adobe add + finalize (optional for custom buttons).
  *
  * @param {Object} params
- * @param {Object} params.cartItem
+ * @param {Object} params.cartItem PDP values / line payload (not pre-enriched)
  * @param {Object} [params.selection]
  * @param {number|string} [params.catalogProductId]
+ * @param {Object|null} [params.productData] AccS PDP product (options for selection_skus)
+ * @param {string|null} [params.accsCartMergeOptionUid]
  * @param {(items: Array<Object>) => Promise<unknown>} [params.addProductsToCart]
  * @returns {Promise<Object>}
  */
@@ -250,18 +350,20 @@ export async function addToCartWithSubscription({
   cartItem,
   selection,
   catalogProductId,
+  productData = null,
+  accsCartMergeOptionUid = null,
   addProductsToCart: addFn = adobeAddProductsToCart,
 }) {
   const prepared = await prepareSubscriptionCartItem({
     values: cartItem,
     selection,
-    productData: {
+    productData: productData || {
       sku: cartItem?.parentSku || cartItem?.sku,
       externalId: catalogProductId,
     },
     mode: 'add',
+    accsCartMergeOptionUid,
   });
-  // Prefer caller cartItem shape when already enriched; pending used prepared path.
   const line = prepared.cartItem;
   const addResult = await addFn([line]);
   await prepared.finalize({ cartResult: addResult });
@@ -409,10 +511,12 @@ function quantityOnLine(cart, itemUid, fallback) {
  * Empty `customFields` forces the drop-in to replace the line instead of patching quantity.
  *
  * @param {Object} params
- * @param {Object} params.cartItem
+ * @param {Object} params.cartItem PDP values / line payload (not pre-enriched)
  * @param {string} params.itemUid
  * @param {Object} [params.selection]
  * @param {number|string} [params.catalogProductId]
+ * @param {Object|null} [params.productData] AccS PDP product (options for selection_skus)
+ * @param {string|null} [params.accsCartMergeOptionUid]
  * @param {(items: Array<Object>) => Promise<unknown>} [params.updateProductsFromCart]
  * @returns {Promise<Object>}
  */
@@ -421,17 +525,20 @@ export async function updateCartItemWithSubscription({
   itemUid,
   selection,
   catalogProductId,
+  productData = null,
+  accsCartMergeOptionUid = null,
   updateProductsFromCart: updateFn = adobeUpdateProductsFromCart,
 }) {
   const prepared = await prepareSubscriptionCartItem({
     values: cartItem,
     selection,
-    productData: {
+    productData: productData || {
       sku: cartItem?.parentSku || cartItem?.sku,
       externalId: catalogProductId,
     },
     mode: 'update',
     itemUid,
+    accsCartMergeOptionUid,
   });
   const updateResult = await updateFn([prepared.cartItem]);
   await prepared.finalize({ cartResult: updateResult, itemUid });
