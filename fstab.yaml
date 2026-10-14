@@ -1,8 +1,0 @@
-mountpoints:
-  /:
-    url: https://content.da.live/RaveDigitalInc/recurbuy-eds/
-    type: markup
-
-folders:
-  /products/: /products/default
-

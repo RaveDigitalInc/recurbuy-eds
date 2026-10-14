@@ -1,37 +1,185 @@
-# Edge Delivery Services + Adobe Commerce Boilerplate
+# `@recurbuy/storefront-eds`
 
-This project boilerplate is for Edge Delivery Services projects that integrate with Adobe Commerce.
+RecurBuy **subscription drop-in** for Adobe Commerce Storefront (EDS).
 
-## Documentation
+Install so stock Adobe `install:dropins` vendors the package — **do not fork `postinstall.js`**.
 
-Before using the boilerplate, we recommend you to go through the documentation on <https://experienceleague.adobe.com/developer/commerce/storefront/> and more specifically:
+**Requires** [aem-boilerplate-commerce](https://github.com/hlxsites/aem-boilerplate-commerce) v11+ (cart drop-in 3.x): RecurBuy hooks into the `CORE_FETCH_GRAPHQL` instance exported by `scripts/commerce.js`. Older bases (v3, cart 1.x) do not expose it and are not supported.
 
-1. [Storefront Developer Tutorial](https://experienceleague.adobe.com/developer/commerce/storefront/get-started/)
-1. [AEM Docs](https://www.aem.live/docs/)
-1. [AEM Developer Tutorial](https://www.aem.live/developer/tutorial)
-1. [The Anatomy of an AEM Project](https://www.aem.live/developer/anatomy-of-a-project)
-1. [Web Performance](https://www.aem.live/developer/keeping-it-100)
-1. [Markup, Sections, Blocks, and Auto Blocking](https://www.aem.live/developer/markup-sections-blocks)
+Full delivery plan: SaaS repo `docs/recurbuy/eds-package-delivery.md`.
 
-## Getting Started
+---
 
-Use the [Site Creator Tool](https://da.live/app/adobe-commerce/storefront-tools/tools/site-creator/site-creator) to quickly spin up your own copy of code and content.
+## Install (recommended)
 
-Alternatively, you can follow our [Guide](https://experienceleague.adobe.com/developer/commerce/storefront/get-started/) for a more detailed walkthrough.
+### 1. Alias dependency
 
-## Updating Drop-in dependencies
+In the merchant storefront `package.json`:
 
-You may need to update one of the drop-in components, or `@adobe/magento-storefront-event-collector` or `@adobe/magento-storefront-events-sdk` to a new version. Besides checking the release notes for any breaking changes, ensure you also execute the `postinstall` script so that the dependenices in your `scripts/__dropins__` directory are updated to the latest build. This should be run immediately after you update the component, for example:
-
-```bash
-npm install @dropins/storefront-cart@2.0. # Updates the storefront-cart dependency in node_modules/
-npm run postinstall # Copies scripts from node_modules into scripts/__dropins__
+```json
+"@dropins/storefront-recurbuy": "npm:@recurbuy/storefront-eds@0.2.0"
 ```
 
-This is a custom script which copies files out of `node_modules` and into a local directory which EDS can serve. You must manually run `postinstall` due to a design choice in `npm` which does not execute `postinstall` after you install a _specific_ package.
+Local tarball (before the package is published):
 
-## Changelog
+```bash
+npm pack                         # in this repository
+npm install "@dropins/storefront-recurbuy@file:/path/to/recurbuy-storefront-eds-0.2.0.tgz"
+```
 
-Major changes are described and documented as part of pull requests and tracked via the `changelog` tag. To keep your project up to date, please follow this list:
+Published package name stays `@recurbuy/storefront-eds`. The `@dropins/…` name is an **alias in the merchant project only**.
 
-<https://github.com/hlxsites/aem-boilerplate-commerce/issues?q=label%3Achangelog+is%3Aclosed>
+### 2. One command install (no hand-editing Adobe blocks)
+
+```bash
+npm install @dropins/storefront-recurbuy@npm:@recurbuy/storefront-eds@0.2.0
+npx recurbuy-eds init
+npm run install:dropins          # vendors the drop-in + applies the build.mjs fragment
+# fill subscriptions-* keys in config.json
+npx recurbuy-eds doctor
+```
+
+`init` leaves stock `decorate()` bodies alone. It:
+
+- adds import map entries to `head.html`
+- adds the `custom_attributes` cart fragment to `build.mjs` (2 lines)
+- adds **one** load line: `import './recurbuy.js'` in `scripts/initializers/cart.js`
+- copies `scripts/initializers/recurbuy.js` + the `commerce-subscriptions` block
+- creates subscriptions page stub + empty `subscriptions-*` keys in `config.json`
+
+At runtime RecurBuy uses Adobe extension points only:
+
+| Area | Mechanism |
+|------|-----------|
+| PDP | auto-mount into `.product-details` + `pdp/*` events |
+| Add to cart | `FetchGraphQL` before/after hooks on `CORE_FETCH_GRAPHQL` |
+| Cart line markers | same after-hook reads `custom_attributes` of every cart response (the cart drop-in drops them while mapping) |
+| Cart / mini-cart / checkout | `cart/data` + DOM paint, repainted when rows appear (no slots required) |
+| Mini-PDP edit | auto-mount + Update intercept |
+
+**Update:** bump the npm alias version → `npm install` → `npm run install:dropins` (re-run `init` only if the report asks for it; it is idempotent). Runtime code lives in the vendored package, so merchants do not re-patch blocks.
+
+**Uninstall:** `npx recurbuy-eds uninstall [--remove-files]` (removes the cart loader import, import map entries and the `build.mjs` fragment).
+
+### 3. Config values (not code)
+
+`config.json` belongs to the merchant's storefront (the boilerplate ships `demo-config.json` as a sample; copy it to `config.json` first). The package never touches the Commerce endpoints in it and only adds **two** keys to `public.default`. `init` creates them empty and prints which ones still need a value:
+
+| Key | Value |
+|-----|-------|
+| `subscriptions-storefront-url` | URL of your RecurBuy panel |
+| `subscriptions-connection-token` | storefront token of this store's Connection in the panel |
+
+The panel resolves the store view and website from the token, so nothing else is configured here. `config.json` is served publicly by Edge Delivery, so use only the storefront token meant for browsers, never a merchant API token.
+
+Panel side: Connection + AccS webhooks + subscription options on products.
+
+### 4. Authoring
+
+Publish the subscriptions page (`content/customer/subscriptions.html` or UE) and a sidebar link. Content change, not code.
+
+---
+
+## Import map
+
+```json
+"@dropins/storefront-recurbuy/": "/scripts/__dropins__/storefront-recurbuy/",
+"@dropins/storefront-recurbuy": "/scripts/__dropins__/storefront-recurbuy/api.js"
+```
+
+---
+
+## Package shape (Adobe-like)
+
+| Path | Role |
+|------|------|
+| `api.js` | `getShopperAuthToken` |
+| `render.js` | `provider.render(Container, props)(el)` |
+| `containers/SubscriptionsList.js` | My Subscriptions table |
+| `graphql.js` | `CART_ITEM_CUSTOM_ATTRIBUTES_OPERATION` for `build.mjs` |
+| `extend/initializer.js` | `installRecurBuyStorefront({ cartClient })` |
+| `bin/recurbuy-eds.js` | `init` / `doctor` / `uninstall` |
+
+```js
+import { render as RecurBuy } from '@dropins/storefront-recurbuy/render.js';
+import SubscriptionsList from '@dropins/storefront-recurbuy/containers/SubscriptionsList.js';
+
+RecurBuy.render(SubscriptionsList, { getAuthToken, onUnauthenticated, getProfileHref })(root);
+```
+
+---
+
+## No decorate() text patches
+
+Stock Adobe blocks are not rewritten by the CLI. Injection is normal JS inside the
+package (`src/extend/*`): hooks, event listeners, MutationObserver mounts.
+
+If `init` cannot patch the cart initializer / `build.mjs` / import map (fork diverged), add manually:
+
+```js
+// scripts/initializers/cart.js
+import './recurbuy.js';
+
+// build.mjs
+import { CART_ITEM_CUSTOM_ATTRIBUTES_OPERATION } from '@dropins/storefront-recurbuy/graphql.js';
+// … { npm: '@dropins/storefront-cart', operations: [CART_ITEM_CUSTOM_ATTRIBUTES_OPERATION] }
+```
+
+---
+
+## CLI
+
+```bash
+npx recurbuy-eds init
+npx recurbuy-eds init --dry-run
+npx recurbuy-eds doctor
+npx recurbuy-eds uninstall
+npx recurbuy-eds uninstall --remove-files
+```
+
+---
+
+## Development
+
+This repository contains only the package (no storefront theme).
+
+```bash
+npm install
+npm run lint
+npm run verify:install                 # fresh boilerplate clone + install per this README + doctor + uninstall
+npm run verify:install -- --ref <tag>  # other boilerplate ref; --keep keeps the work dir for manual checks
+```
+
+`verify:install` is the release gate: it fails if `init` touches any stock file beyond `head.html`, `build.mjs`, `scripts/initializers/cart.js` and `package.json`, or if `uninstall` does not restore them. To try it in a browser, run it with `--keep`, add real `subscriptions-*` values to `config.json` in the kept folder and start `aem up` there.
+
+---
+
+## Mental model
+
+| Layer | Owns |
+|-------|------|
+| Adobe drop-ins | PDP, cart, checkout, GraphQL to AccS |
+| Merchant EDS | one loader import + `config.json` (+ subscriptions page) |
+| **This package** | Plan UI, AccS pending-add, cart line paint, My Subscriptions |
+
+Do **not** remap `@dropins/storefront-cart` or fork Adobe drop-in packages.
+
+---
+
+## Checklist
+
+- [ ] Alias `@dropins/storefront-recurbuy` in `package.json`
+- [ ] `npx recurbuy-eds init`, then `npm run install:dropins` → `scripts/__dropins__/storefront-recurbuy/`
+- [ ] `npx recurbuy-eds doctor`
+- [ ] Config values filled (not just empty keys)
+- [ ] Account page + sidebar for subscriptions
+- [ ] Panel Connection + AccS webhooks + product subscription options
+- [ ] Smoke: plan add → subscription price in cart → one-time same SKU stays catalog
+
+---
+
+## Related (SaaS panel repo)
+
+- Delivery plan: `docs/recurbuy/eds-package-delivery.md`
+- AccS add-to-cart: `docs/recurbuy/storefront-accs-drop-in-addtocart.md`
+- Storefront HTTP API: `docs/recurbuy/storefront-api.md`
