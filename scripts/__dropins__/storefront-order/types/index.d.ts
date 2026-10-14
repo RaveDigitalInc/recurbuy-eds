@@ -21,6 +21,7 @@ export * from './api/getGuestOrder.types';
 export * from './api/getOrderDetails.types';
 export * from './api/guestOrderByToken.types';
 export * from './api/placeOrder.types';
+export * from './api/placeNegotiableQuoteOrder.types';
 export * from './api/reorderItems.types';
 export * from './api/requestReturn.types';
 export * from './api/confirmGuestReturn.types';
@@ -34,9 +35,9 @@ export * from './orderCostSummary.types';
 export * from './orderHeader.types';
 export * from './orderProductList.types';
 export * from './orderSearch.types';
+export * from './orderComments.types';
 export * from './orderStatus.types';
 export * from './reorder.types';
 export * from './returnsList.types';
 export * from './shippingStatus.types';
 export * from './orderEmailActionHandler.types';
-//# sourceMappingURL=index.d.ts.map

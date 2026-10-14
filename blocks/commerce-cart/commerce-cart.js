@@ -25,15 +25,20 @@ import { tryRenderAemAssetsImage } from '@dropins/tools/lib/aem/assets.js';
 import { publishShoppingCartViewEvent } from '@dropins/storefront-cart/api.js';
 
 // Modal and Mini PDP
+import createMiniPDP from '../../scripts/components/commerce-mini-pdp/commerce-mini-pdp.js';
 import createModal from '../modal/modal.js';
-import createMiniPDP from '../commerce-mini-pdp/commerce-mini-pdp.js';
 
 // Initializers
 import '../../scripts/initializers/cart.js';
 import '../../scripts/initializers/wishlist.js';
 
 import { readBlockConfig } from '../../scripts/aem.js';
-import { rootLink, fetchPlaceholders } from '../../scripts/commerce.js';
+import {
+  fetchPlaceholders,
+  rootLink,
+  getProductLink,
+  renderCartItemPromotions,
+} from '../../scripts/commerce.js';
 
 export default async function decorate(block) {
   // Configuration
@@ -86,7 +91,7 @@ export default async function decorate(block) {
   block.appendChild(fragment);
 
   // Wishlist variables
-  const routeToWishlist = '/wishlist';
+  const routeToWishlist = rootLink('/wishlist');
 
   // Toggle Empty Cart
   function toggleEmptyCart(_state) {
@@ -168,12 +173,12 @@ export default async function decorate(block) {
   }
 
   // Render Containers
-  const getProductLink = (product) => rootLink(`/products/${product.url.urlKey}/${product.topLevelSku}`);
+  const createProductLink = (product) => getProductLink(product.url.urlKey, product.topLevelSku);
   await Promise.all([
     // Cart List
     provider.render(CartSummaryList, {
       hideHeading: hideHeading === 'true',
-      routeProduct: getProductLink,
+      routeProduct: createProductLink,
       routeEmptyCartCTA: startShoppingURL ? () => rootLink(startShoppingURL) : undefined,
       maxItems: parseInt(maxItems, 10) || undefined,
       attributesToHide: hideAttributes
@@ -186,7 +191,7 @@ export default async function decorate(block) {
         Thumbnail: (ctx) => {
           const { item, defaultImageProps } = ctx;
           const anchorWrapper = document.createElement('a');
-          anchorWrapper.href = getProductLink(item);
+          anchorWrapper.href = createProductLink(item);
 
           tryRenderAemAssetsImage(ctx, {
             alias: item.sku,
@@ -201,6 +206,9 @@ export default async function decorate(block) {
         },
 
         Footer: (ctx) => {
+          // Promotion / discount rule labels
+          renderCartItemPromotions(ctx);
+
           // Edit Link
           if (ctx.item?.itemType === 'ConfigurableCartItem' && enableUpdatingProduct === 'true') {
             const editLink = document.createElement('div');
@@ -208,6 +216,9 @@ export default async function decorate(block) {
 
             UI.render(Button, {
               children: placeholders?.Global?.CartEditButton,
+              // Every cart item renders its own Edit button, so the accessible
+              // name must include the product name to distinguish them.
+              'aria-label': `${placeholders?.Global?.CartEditButton} ${ctx.item.name}`,
               variant: 'tertiary',
               size: 'medium',
               icon: h(Icon, { source: 'Edit' }),
@@ -253,7 +264,6 @@ export default async function decorate(block) {
 
     // Order Summary
     provider.render(OrderSummary, {
-      routeProduct: getProductLink,
       routeCheckout: checkoutURL ? () => rootLink(checkoutURL) : undefined,
       slots: {
         EstimateShipping: async (ctx) => {

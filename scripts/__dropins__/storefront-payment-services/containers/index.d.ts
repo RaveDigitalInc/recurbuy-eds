@@ -15,4 +15,7 @@
  * from Adobe.
  *******************************************************************/
 export * from './CreditCard/CreditCard';
+export * from './ApplePay/ApplePay';
+export * from './GooglePay/GooglePay';
+export * from './PayPalButtons/PayPalButtons';
 //# sourceMappingURL=index.d.ts.map

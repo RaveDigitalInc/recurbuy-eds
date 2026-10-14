@@ -7,12 +7,17 @@ declare const _default: {
         "Facet": {
             "showMore": "Show more",
             "showLess": "Show less",
-            "clearAll": "Clear all"
+            "clearAll": "Clear all",
+            "clearAllFilters": "Clear all filters"
         },
         "SortBy": {
             "title": "Sort by",
             "lowToHigh": "Low to High",
-            "highToLow": "High to Low"
+            "highToLow": "High to Low",
+            "relevance": "Relevance",
+            "position": "Position",
+            "name": "Product Name",
+            "price": "Price"
         }
     }
 };

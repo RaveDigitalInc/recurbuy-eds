@@ -14,6 +14,7 @@
  * is strictly forbidden unless prior written permission is obtained
  * from Adobe.
  *******************************************************************/
+import type { AvailableFreeGiftRule } from './free-gift-selection.js';
 export interface CartModel {
     totalGiftOptions: {
         giftWrappingForItems: Price;
@@ -70,6 +71,13 @@ export interface CartModel {
     hasOutOfStockItems?: boolean;
     hasFullyOutOfStockItems?: boolean;
     appliedCoupons?: Coupon[];
+    /**
+     * From `Cart.has_available_free_gifts` (SalesRuleFreeGift). When true, show free-gift selection
+     * for rules listed on `availableFreeGifts`.
+     */
+    hasAvailableFreeGifts?: boolean;
+    /** From `Cart.available_free_gifts` — rules still needing a SKU / option selection. */
+    availableFreeGifts?: AvailableFreeGiftRule[];
 }
 export interface AppliedGiftCardProps {
     code: string;
@@ -86,6 +94,16 @@ interface TotalPriceModifier {
 interface FixedProductTax {
     amount: Price;
     label: string;
+}
+export interface CustomizableOptionEntry {
+    uid: string;
+    label: string;
+    type: string;
+    values: {
+        uid: string;
+        label: string;
+        value: string;
+    }[];
 }
 export interface Item {
     giftWrappingAvailable: boolean;
@@ -105,6 +123,7 @@ export interface Item {
         senderName: string;
         message: string;
     };
+    priceTiers: PriceTier[];
     giftMessageAvailable: boolean | null;
     taxedPrice: Price;
     rowTotal: Price;
@@ -125,6 +144,8 @@ export interface Item {
     discountedTotal?: Price;
     discount?: Price;
     regularPrice: Price;
+    /** `prices.original_item_price` — catalog special price, unaffected by free-gift row zeroing. */
+    originalItemPrice?: Price;
     discounted: boolean;
     bundleOptions?: {
         [key: string]: any;
@@ -139,6 +160,9 @@ export interface Item {
     customizableOptions?: {
         [key: string]: any;
     };
+    customizableOptionEntries?: CustomizableOptionEntry[];
+    /** From `CartItemInterface.is_free_gift` (SalesRuleFreeGift). */
+    isFreeGift?: boolean;
     message?: string;
     recipient?: string;
     recipientEmail?: string;
@@ -149,11 +173,21 @@ export interface Item {
     onlyXLeftInStock?: number | null;
     outOfStock?: boolean;
     notAvailableMessage?: string;
-    stockLevel?: String;
+    /** Cart line backorder notice from commerce when the item is still purchasable */
+    backorderMessage?: string;
+    stockLevel?: string;
     discountPercentage?: number;
     savingsAmount?: Price;
     productAttributes?: Attribute[];
     fixedProductTaxes?: FixedProductTax[];
+}
+interface PriceTier {
+    quantity: number;
+    final_price: Price;
+    discount: {
+        amount_off: number;
+        percent_off: number;
+    };
 }
 interface ItemError {
     id: string;
@@ -192,4 +226,3 @@ export interface WrappingImage {
     design: string;
 }
 export {};
-//# sourceMappingURL=cart-model.d.ts.map

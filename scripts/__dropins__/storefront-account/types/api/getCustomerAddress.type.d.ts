@@ -42,6 +42,7 @@ export interface UserAddressesProps {
         code: string;
         value: string;
     }[];
+    uid?: string;
 }
 export interface AddressResponse {
     data: {
@@ -53,4 +54,3 @@ export interface AddressResponse {
         message: string;
     }[];
 }
-//# sourceMappingURL=getCustomerAddress.type.d.ts.map

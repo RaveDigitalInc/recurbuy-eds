@@ -28,6 +28,7 @@ export declare const definition: {
                 increaseLabel: string;
                 label: string;
                 errorMessage: string;
+                requiredMessage: string;
                 minQuantityMessage: string;
                 maxQuantityMessage: string;
             };
@@ -42,11 +43,18 @@ export declare const definition: {
                 buttonShowTitle: string;
                 buttonHideTitle: string;
             };
+            Input: {
+                errorIconAriaLabel: string;
+                successIconAriaLabel: string;
+            };
             PasswordStatusIndicator: {
                 chartTwoSymbols: string;
                 chartThreeSymbols: string;
                 chartFourSymbols: string;
                 messageLengthPassword: string;
+                iconPendingAlt: string;
+                iconSuccessAlt: string;
+                iconErrorAlt: string;
             };
             InlineAlert: {
                 dismissLabel: string;
@@ -151,6 +159,44 @@ export declare const definition: {
             };
             InputDate: {
                 picker: string;
+            };
+            Table: {
+                sortedAscending: string;
+                sortedDescending: string;
+                sortBy: string;
+            };
+            MultiSelect: {
+                selectAll: string;
+                deselectAll: string;
+                placeholder: string;
+                noResultsText: string;
+                ariaLabel: {
+                    removed: string;
+                    added: string;
+                    itemsSelected: string;
+                    itemsAdded: string;
+                    itemsRemoved: string;
+                    selectedTotal: string;
+                    noResultsFor: string;
+                    optionsAvailable: string;
+                    dropdownExpanded: string;
+                    useArrowKeys: string;
+                    removeFromSelection: string;
+                    fromSelection: string;
+                    selectedItem: string;
+                    inField: string;
+                    selectedItems: string;
+                    scrollableOptionsList: string;
+                    selectOptions: string;
+                    itemAction: string;
+                    bulkAdded: string;
+                    bulkRemoved: string;
+                    dropdownExpandedWithOptions: string;
+                    selectedItemInField: string;
+                    removeFromSelectionWithText: string;
+                    itemsSelectedDescription: string;
+                    noItemsSelected: string;
+                };
             };
         };
     };
@@ -174,6 +220,7 @@ export declare const definition: {
                 increaseLabel: string;
                 label: string;
                 errorMessage: string;
+                requiredMessage: string;
                 minQuantityMessage: string;
                 maxQuantityMessage: string;
             };
@@ -188,11 +235,18 @@ export declare const definition: {
                 buttonShowTitle: string;
                 buttonHideTitle: string;
             };
+            Input: {
+                errorIconAriaLabel: string;
+                successIconAriaLabel: string;
+            };
             PasswordStatusIndicator: {
                 chartTwoSymbols: string;
                 chartThreeSymbols: string;
                 chartFourSymbols: string;
                 messageLengthPassword: string;
+                iconPendingAlt: string;
+                iconSuccessAlt: string;
+                iconErrorAlt: string;
             };
             InlineAlert: {
                 dismissLabel: string;
@@ -297,6 +351,44 @@ export declare const definition: {
             };
             InputDate: {
                 picker: string;
+            };
+            Table: {
+                sortedAscending: string;
+                sortedDescending: string;
+                sortBy: string;
+            };
+            MultiSelect: {
+                selectAll: string;
+                deselectAll: string;
+                placeholder: string;
+                noResultsText: string;
+                ariaLabel: {
+                    removed: string;
+                    added: string;
+                    itemsSelected: string;
+                    itemsAdded: string;
+                    itemsRemoved: string;
+                    selectedTotal: string;
+                    noResultsFor: string;
+                    optionsAvailable: string;
+                    dropdownExpanded: string;
+                    useArrowKeys: string;
+                    removeFromSelection: string;
+                    fromSelection: string;
+                    selectedItem: string;
+                    inField: string;
+                    selectedItems: string;
+                    scrollableOptionsList: string;
+                    selectOptions: string;
+                    itemAction: string;
+                    bulkAdded: string;
+                    bulkRemoved: string;
+                    dropdownExpandedWithOptions: string;
+                    selectedItemInField: string;
+                    removeFromSelectionWithText: string;
+                    itemsSelectedDescription: string;
+                    noItemsSelected: string;
+                };
             };
         };
     };
@@ -322,6 +414,7 @@ export declare const getDefinitionByLanguage: (lang: Lang) => {
             increaseLabel: string;
             label: string;
             errorMessage: string;
+            requiredMessage: string;
             minQuantityMessage: string;
             maxQuantityMessage: string;
         };
@@ -336,11 +429,18 @@ export declare const getDefinitionByLanguage: (lang: Lang) => {
             buttonShowTitle: string;
             buttonHideTitle: string;
         };
+        Input: {
+            errorIconAriaLabel: string;
+            successIconAriaLabel: string;
+        };
         PasswordStatusIndicator: {
             chartTwoSymbols: string;
             chartThreeSymbols: string;
             chartFourSymbols: string;
             messageLengthPassword: string;
+            iconPendingAlt: string;
+            iconSuccessAlt: string;
+            iconErrorAlt: string;
         };
         InlineAlert: {
             dismissLabel: string;
@@ -446,6 +546,43 @@ export declare const getDefinitionByLanguage: (lang: Lang) => {
         InputDate: {
             picker: string;
         };
+        Table: {
+            sortedAscending: string;
+            sortedDescending: string;
+            sortBy: string;
+        };
+        MultiSelect: {
+            selectAll: string;
+            deselectAll: string;
+            placeholder: string;
+            noResultsText: string;
+            ariaLabel: {
+                removed: string;
+                added: string;
+                itemsSelected: string;
+                itemsAdded: string;
+                itemsRemoved: string;
+                selectedTotal: string;
+                noResultsFor: string;
+                optionsAvailable: string;
+                dropdownExpanded: string;
+                useArrowKeys: string;
+                removeFromSelection: string;
+                fromSelection: string;
+                selectedItem: string;
+                inField: string;
+                selectedItems: string;
+                scrollableOptionsList: string;
+                selectOptions: string;
+                itemAction: string;
+                bulkAdded: string;
+                bulkRemoved: string;
+                dropdownExpandedWithOptions: string;
+                selectedItemInField: string;
+                removeFromSelectionWithText: string;
+                itemsSelectedDescription: string;
+                noItemsSelected: string;
+            };
+        };
     };
 };
-//# sourceMappingURL=index.d.ts.map

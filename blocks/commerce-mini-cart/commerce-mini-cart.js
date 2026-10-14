@@ -11,13 +11,18 @@ import {
 import { h } from '@dropins/tools/preact.js';
 
 import createModal from '../modal/modal.js';
-import createMiniPDP from '../commerce-mini-pdp/commerce-mini-pdp.js';
+import createMiniPDP from '../../scripts/components/commerce-mini-pdp/commerce-mini-pdp.js';
 
 // Initializers
 import '../../scripts/initializers/cart.js';
 
 import { readBlockConfig } from '../../scripts/aem.js';
-import { fetchPlaceholders, rootLink } from '../../scripts/commerce.js';
+import {
+  fetchPlaceholders,
+  rootLink,
+  getProductLink,
+  renderCartItemPromotions,
+} from '../../scripts/commerce.js';
 
 export default async function decorate(block) {
   const {
@@ -43,6 +48,8 @@ export default async function decorate(block) {
   // Create a container for the update message
   const updateMessage = document.createElement('div');
   updateMessage.className = 'commerce-mini-cart__update-message';
+  updateMessage.setAttribute('role', 'status');
+  updateMessage.setAttribute('aria-live', 'polite');
 
   // Create shadow wrapper
   const shadowWrapper = document.createElement('div');
@@ -160,19 +167,19 @@ export default async function decorate(block) {
   block.innerHTML = '';
 
   // Render MiniCart
-  const getProductLink = (product) => rootLink(`/products/${product.url.urlKey}/${product.topLevelSku}`);
+  const createProductLink = (product) => getProductLink(product.url.urlKey, product.topLevelSku);
   await provider.render(MiniCart, {
     routeEmptyCartCTA: startShoppingURL ? () => rootLink(startShoppingURL) : undefined,
     routeCart: cartURL ? () => rootLink(cartURL) : undefined,
     routeCheckout: checkoutURL ? () => rootLink(checkoutURL) : undefined,
-    routeProduct: getProductLink,
+    routeProduct: createProductLink,
     undo: undo === 'true',
 
     slots: {
       Thumbnail: (ctx) => {
         const { item, defaultImageProps } = ctx;
         const anchorWrapper = document.createElement('a');
-        anchorWrapper.href = getProductLink(item);
+        anchorWrapper.href = createProductLink(item);
 
         tryRenderAemAssetsImage(ctx, {
           alias: item.sku,
@@ -194,6 +201,9 @@ export default async function decorate(block) {
 
           UI.render(Button, {
             children: placeholders?.Global?.CartEditButton,
+            // Every cart item renders its own Edit button, so the accessible
+            // name must include the product name to distinguish them.
+            'aria-label': `${placeholders?.Global?.CartEditButton} ${item.name}`,
             variant: 'tertiary',
             size: 'medium',
             icon: h(Icon, { source: 'Edit' }),
@@ -203,6 +213,10 @@ export default async function decorate(block) {
           editLinkContainer.appendChild(editLink);
           ctx.appendChild(editLinkContainer);
         }
+      },
+
+      Footer: (ctx) => {
+        renderCartItemPromotions(ctx);
       },
     },
   })(block);

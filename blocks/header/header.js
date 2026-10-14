@@ -4,10 +4,11 @@ import { events } from '@dropins/tools/event-bus.js';
 import { tryRenderAemAssetsImage } from '@dropins/tools/lib/aem/assets.js';
 import { getMetadata } from '../../scripts/aem.js';
 import { loadFragment } from '../fragment/fragment.js';
+import { fetchPlaceholders, getProductLink, rootLink } from '../../scripts/commerce.js';
 
 import renderAuthCombine from './renderAuthCombine.js';
 import { renderAuthDropdown } from './renderAuthDropdown.js';
-import { fetchPlaceholders, rootLink } from '../../scripts/commerce.js';
+import renderSellerAssistedBuyingBanner from './renderSellerAssistedBuyingBanner.js';
 
 // media query match that indicates mobile/tablet width
 const isDesktop = window.matchMedia('(min-width: 900px)');
@@ -22,6 +23,7 @@ function closeOnEscape(e) {
   if (e.code === 'Escape') {
     const nav = document.getElementById('nav');
     const navSections = nav.querySelector('.nav-sections');
+    if (!navSections) return;
     const navSectionExpanded = navSections.querySelector('[aria-expanded="true"]');
     if (navSectionExpanded && isDesktop.matches) {
       toggleAllNavSections(navSections);
@@ -41,6 +43,7 @@ function closeOnFocusLost(e) {
   const nav = e.currentTarget;
   if (!nav.contains(e.relatedTarget)) {
     const navSections = nav.querySelector('.nav-sections');
+    if (!navSections) return;
     const navSectionExpanded = navSections.querySelector('[aria-expanded="true"]');
     if (navSectionExpanded && isDesktop.matches) {
       toggleAllNavSections(navSections, false);
@@ -71,6 +74,7 @@ function focusNavSection() {
  * @param {Boolean} expanded Whether the element should be expanded or collapsed
  */
 function toggleAllNavSections(sections, expanded = false) {
+  if (!sections) return;
   sections
     .querySelectorAll('.nav-sections .default-content-wrapper > ul > li')
     .forEach((section) => {
@@ -90,22 +94,27 @@ function toggleMenu(nav, navSections, forceExpanded = null) {
   document.body.style.overflowY = expanded || isDesktop.matches ? '' : 'hidden';
   nav.setAttribute('aria-expanded', expanded ? 'false' : 'true');
   toggleAllNavSections(navSections, expanded || isDesktop.matches ? 'false' : 'true');
-  button.setAttribute('aria-label', expanded ? 'Open navigation' : 'Close navigation');
+  button.setAttribute(
+    'aria-label',
+    expanded ? (labels.Global?.OpenNavigation ?? 'Open navigation') : (labels.Global?.CloseNavigation ?? 'Close navigation'),
+  );
   // enable nav dropdown keyboard accessibility
-  const navDrops = navSections.querySelectorAll('.nav-drop');
-  if (isDesktop.matches) {
-    navDrops.forEach((drop) => {
-      if (!drop.hasAttribute('tabindex')) {
-        drop.setAttribute('tabindex', 0);
-        drop.addEventListener('focus', focusNavSection);
-      }
-    });
-  } else {
-    navDrops.forEach((drop) => {
-      drop.classList.remove('active');
-      drop.removeAttribute('tabindex');
-      drop.removeEventListener('focus', focusNavSection);
-    });
+  if (navSections) {
+    const navDrops = navSections.querySelectorAll('.nav-drop');
+    if (isDesktop.matches) {
+      navDrops.forEach((drop) => {
+        if (!drop.hasAttribute('tabindex')) {
+          drop.setAttribute('tabindex', 0);
+          drop.addEventListener('focus', focusNavSection);
+        }
+      });
+    } else {
+      navDrops.forEach((drop) => {
+        drop.classList.remove('active');
+        drop.removeAttribute('tabindex');
+        drop.removeEventListener('focus', focusNavSection);
+      });
+    }
   }
 
   // enable menu collapse on escape keypress
@@ -122,7 +131,7 @@ function toggleMenu(nav, navSections, forceExpanded = null) {
 
 const subMenuHeader = document.createElement('div');
 subMenuHeader.classList.add('submenu-header');
-subMenuHeader.innerHTML = '<h5 class="back-link">All Categories</h5><hr />';
+subMenuHeader.innerHTML = `<h5 class="back-link">${labels.Global?.AllCategories ?? 'All Categories'}</h5><hr />`;
 
 /**
  * Sets up the submenu
@@ -157,6 +166,12 @@ function setupSubmenu(navSection) {
  * @param {Element} block The header block element
  */
 export default async function decorate(block) {
+  // Render a banner at the top of the page if seller assisted buying session identified
+  const sellerAssistedBuyingBanner = await renderSellerAssistedBuyingBanner();
+  if (sellerAssistedBuyingBanner && !document.querySelector('.seller-assisted-buying-banner')) {
+    document.body.insertAdjacentElement('afterbegin', sellerAssistedBuyingBanner);
+  }
+
   // load nav as fragment
   const navMeta = getMetadata('nav');
   const navPath = navMeta ? new URL(navMeta, window.location).pathname : '/nav';
@@ -186,7 +201,12 @@ export default async function decorate(block) {
     navSections
       .querySelectorAll(':scope .default-content-wrapper > ul > li')
       .forEach((navSection) => {
-        if (navSection.querySelector('ul')) navSection.classList.add('nav-drop');
+        if (navSection.querySelector('ul')) {
+          navSection.classList.add('nav-drop');
+          navSection.setAttribute('role', 'button');
+          navSection.setAttribute('aria-haspopup', 'true');
+          navSection.setAttribute('aria-expanded', 'false');
+        }
         setupSubmenu(navSection);
         navSection.addEventListener('click', (event) => {
           if (event.target.tagName === 'A') return;
@@ -213,7 +233,7 @@ export default async function decorate(block) {
   /** Wishlist */
   const wishlist = document.createRange().createContextualFragment(`
      <div class="wishlist-wrapper nav-tools-wrapper">
-       <button type="button" class="nav-wishlist-button" aria-label="Wishlist"></button>
+       <button type="button" class="nav-wishlist-button" aria-label="${labels.Global?.Wishlist ?? 'Wishlist'}"></button>
        <div class="wishlist-panel nav-tools-panel"></div>
      </div>
    `);
@@ -234,8 +254,9 @@ export default async function decorate(block) {
 
   const minicart = document.createRange().createContextualFragment(`
      <div class="minicart-wrapper nav-tools-wrapper">
-       <button type="button" class="nav-cart-button" aria-label="Cart"></button>
-       <div class="minicart-panel nav-tools-panel"></div>
+       <button type="button" class="nav-cart-button" aria-label="${labels.Global?.Cart ?? 'Cart'}" aria-haspopup="dialog" aria-expanded="false" aria-controls="minicart-panel"></button>
+       <div class="minicart-panel nav-tools-panel" id="minicart-panel"></div>
+       <div class="nav-cart-status" role="status" aria-live="polite"></div>
      </div>
    `);
 
@@ -244,6 +265,11 @@ export default async function decorate(block) {
   const minicartPanel = navTools.querySelector('.minicart-panel');
 
   const cartButton = navTools.querySelector('.nav-cart-button');
+
+  // Kept mounted at all times so the item count change is reliably
+  // announced instead of being missed, since the visual badge is a
+  // `data-count` attribute rendered via CSS and isn't announced on its own.
+  const cartStatus = navTools.querySelector('.nav-cart-status');
 
   if (excludeMiniCartFromPaths.includes(window.location.pathname)) {
     cartButton.style.display = 'none';
@@ -316,27 +342,58 @@ export default async function decorate(block) {
     }
 
     togglePanel(minicartPanel, state);
+    cartButton.setAttribute(
+      'aria-expanded',
+      minicartPanel.classList.contains('nav-tools-panel--show') ? 'true' : 'false',
+    );
   }
 
   cartButton.addEventListener('click', () => toggleMiniCart(!minicartPanel.classList.contains('nav-tools-panel--show')));
 
   // Cart Item Counter
-  events.on('cart/data', (data) => {
-    // preload mini cart fragment if user has a cart
-    if (data) loadMiniCartFragment();
+  let previousCartQuantity;
 
-    if (data?.totalQuantity) {
-      cartButton.setAttribute('data-count', data.totalQuantity);
+  events.on('cart/data', (data) => {
+    const totalQuantity = data?.totalQuantity ?? 0;
+
+    if (totalQuantity) {
+      cartButton.setAttribute('data-count', totalQuantity);
     } else {
       cartButton.removeAttribute('data-count');
     }
+
+    cartButton.setAttribute(
+      'aria-label',
+      totalQuantity === 1
+        ? (labels.Global?.CartWithItem?.replace('{count}', totalQuantity)
+          ?? `Cart with ${totalQuantity} item`)
+        : (labels.Global?.CartWithItems?.replace('{count}', totalQuantity)
+          ?? `Cart with ${totalQuantity} items`),
+    );
+
+    // Skip the announcement for the initial value on page load so screen
+    // reader users aren't told about the cart contents before they've
+    // interacted with it; only announce actual changes.
+    if (previousCartQuantity !== undefined && previousCartQuantity !== totalQuantity) {
+      if (totalQuantity) {
+        cartStatus.textContent = totalQuantity === 1
+          ? (labels.Global?.CartUpdatedWithItem?.replace('{count}', totalQuantity)
+            ?? `Cart updated, ${totalQuantity} item in cart`)
+          : (labels.Global?.CartUpdatedWithItems?.replace('{count}', totalQuantity)
+            ?? `Cart updated, ${totalQuantity} items in cart`);
+      } else {
+        cartStatus.textContent = labels.Global?.CartUpdatedEmpty ?? 'Cart updated, cart is empty';
+      }
+    }
+
+    previousCartQuantity = totalQuantity;
   }, { eager: true });
 
   /** Search */
   const searchFragment = document.createRange().createContextualFragment(`
   <div class="search-wrapper nav-tools-wrapper">
-    <button type="button" class="nav-search-button">Search</button>
-    <div class="nav-search-input nav-search-panel nav-tools-panel">
+    <button type="button" class="nav-search-button" aria-haspopup="dialog" aria-expanded="false" aria-controls="search-panel">${labels.Global?.Search ?? 'Search'}</button>
+    <div class="nav-search-input nav-search-panel nav-tools-panel" id="search-panel">
       <form id="search-bar-form"></form>
       <div class="search-bar-result" style="display: none;"></div>
     </div>
@@ -374,7 +431,7 @@ export default async function decorate(block) {
         render.render(SearchResults, {
           skeletonCount: pageSize,
           scope: 'popover',
-          routeProduct: ({ urlKey, sku }) => rootLink(`/products/${urlKey}/${sku}`),
+          routeProduct: ({ urlKey, sku }) => getProductLink(urlKey, sku),
           onSearchResult: (results) => {
             searchResult.style.display = results.length > 0 ? 'block' : 'none';
           },
@@ -382,7 +439,7 @@ export default async function decorate(block) {
             ProductImage: (ctx) => {
               const { product, defaultImageProps } = ctx;
               const anchorWrapper = document.createElement('a');
-              anchorWrapper.href = rootLink(`/products/${product.urlKey}/${product.sku}`);
+              anchorWrapper.href = getProductLink(product.urlKey, product.sku);
 
               tryRenderAemAssetsImage(ctx, {
                 alias: product.sku,
@@ -440,6 +497,9 @@ export default async function decorate(block) {
             search({
               phrase,
               pageSize,
+              filter: [
+                { attribute: 'visibility', in: ['Search', 'Catalog, Search'] },
+              ],
             }, { scope: 'popover' });
           },
         })(searchForm);
@@ -447,6 +507,10 @@ export default async function decorate(block) {
     }
 
     togglePanel(searchPanel, state);
+    searchButton.setAttribute(
+      'aria-expanded',
+      searchPanel.classList.contains('nav-tools-panel--show') ? 'true' : 'false',
+    );
     if (state) searchForm?.querySelector('input')?.focus();
   }
 
@@ -506,7 +570,7 @@ export default async function decorate(block) {
   // hamburger for mobile
   const hamburger = document.createElement('div');
   hamburger.classList.add('nav-hamburger');
-  hamburger.innerHTML = `<button type="button" aria-controls="nav" aria-label="Open navigation">
+  hamburger.innerHTML = `<button type="button" aria-controls="nav" aria-label="${labels.Global?.OpenNavigation ?? 'Open navigation'}">
       <span class="nav-hamburger-icon"></span>
     </button>`;
   hamburger.addEventListener('click', () => {

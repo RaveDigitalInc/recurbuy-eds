@@ -15,4 +15,4 @@
  * from Adobe.
  *******************************************************************/
 export * from './setShippingMethods';
-//# sourceMappingURL=index.d.ts.map
+export { setShippingMethods as setShippingMethodsOnCart } from './setShippingMethods';
