@@ -17,7 +17,9 @@
         "picker": {
           "rootCategory": "2"
         }
-      }
+      },
+      "subscriptions-storefront-url": "",
+      "subscriptions-connection-token": ""
     }
   }
 }
