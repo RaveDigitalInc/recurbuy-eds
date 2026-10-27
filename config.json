@@ -18,8 +18,8 @@
           "rootCategory": "2"
         }
       },
-      "subscriptions-storefront-url": "",
-      "subscriptions-connection-token": ""
+      "subscriptions-storefront-url": "https://770790f00b07.ngrok.app",
+      "subscriptions-connection-token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOjEsInN1YiI6ODMsImlhdCI6MTc5MDg1MzgxMn0.k5fYdl4IwNrgKBWj66X9hksE9w0M59ZySz_HAR-qFPU"
     }
   }
 }
