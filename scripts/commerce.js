@@ -11,6 +11,8 @@ import { FetchGraphQL } from '@dropins/tools/fetch-graphql.js';
 import {
   getMetadata,
   readBlockConfig,
+  toCamelCase,
+  toClassName,
 } from './aem.js';
 import initializeDropins from './initializers/index.js';
 
@@ -909,5 +911,25 @@ export function decorateSections(main) {
     section.classList.add('section');
     section.dataset.sectionStatus = 'initialized';
     section.style.display = 'none';
+
+    // DA/UE "Section Metadata" → data-* on the section (Column Width → data-column-width).
+    // Required for body.columns + buildTemplateColumns(); without this the labels stay visible
+    // and the account sidebar/content stack vertically.
+    const sectionMeta = section.querySelector('div.section-metadata');
+    if (sectionMeta) {
+      const meta = readBlockConfig(sectionMeta);
+      Object.keys(meta).forEach((key) => {
+        if (key === 'style') {
+          const styles = meta.style
+            .split(',')
+            .filter((style) => style)
+            .map((style) => toClassName(style.trim()));
+          styles.forEach((style) => section.classList.add(style));
+        } else {
+          section.dataset[toCamelCase(key)] = meta[key];
+        }
+      });
+      sectionMeta.parentNode.remove();
+    }
   });
 }
