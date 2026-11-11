@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "suite": "11.0.0",
   "packageName": "@recurbuy/storefront-eds",
-  "packageVersion": "0.2.0",
+  "packageVersion": "0.2.24",
   "appliedPatches": {
     "cart-loader": {
       "id": "cart-loader",
@@ -21,7 +21,19 @@
       "version": 1,
       "file": "build.mjs",
       "appliedAt": "2026-10-27T15:58:40.851Z"
+    },
+    "checkout-loader": {
+      "id": "checkout-loader",
+      "version": 1,
+      "file": "scripts/initializers/checkout.js",
+      "appliedAt": "2026-11-10T13:17:35.892Z"
+    },
+    "section-metadata": {
+      "id": "section-metadata",
+      "version": 1,
+      "file": "scripts/commerce.js",
+      "appliedAt": "2026-11-10T13:24:10.789Z"
     }
   },
-  "updatedAt": "2026-10-27T16:24:11.139Z"
+  "updatedAt": "2026-11-10T13:24:10.791Z"
 }
