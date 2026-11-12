@@ -213,6 +213,27 @@ export async function runDoctor(options) {
     });
   }
 
+  const accountBlockJs = resolvePath(
+    cwd,
+    'blocks',
+    'commerce-subscription-account',
+    'commerce-subscription-account.js',
+  );
+  if (fs.existsSync(accountBlockJs)) {
+    add({
+      id: 'block-account',
+      status: 'ok',
+      label: 'blocks/commerce-subscription-account',
+    });
+  } else {
+    add({
+      id: 'block-account',
+      status: 'fail',
+      label: 'blocks/commerce-subscription-account missing',
+      fix: 'Run: npx recurbuy-eds upgrade --refresh-templates  (or init). Needed for detail/edit Account pages.',
+    });
+  }
+
   const cartInit = resolvePath(cwd, 'scripts', 'initializers', 'cart.js');
   const cartInitSource = fs.existsSync(cartInit) ? readText(cartInit) : '';
   if (cartInitSource.includes("import './recurbuy.js';")) {
@@ -234,6 +255,30 @@ export async function runDoctor(options) {
       status: 'fail',
       label: "scripts/initializers/cart.js missing import './recurbuy.js'",
       fix: 'Run: npx recurbuy-eds init  (patches cart.js). If the suite patch fails, add manually: import \'./recurbuy.js\';',
+    });
+  }
+
+  const checkoutInit = resolvePath(cwd, 'scripts', 'initializers', 'checkout.js');
+  const checkoutInitSource = fs.existsSync(checkoutInit) ? readText(checkoutInit) : '';
+  if (checkoutInitSource.includes("import './recurbuy.js';")) {
+    add({
+      id: 'checkout-loader',
+      status: 'ok',
+      label: 'checkout initializer loads scripts/initializers/recurbuy.js',
+    });
+  } else if (!fs.existsSync(checkoutInit)) {
+    add({
+      id: 'checkout-loader',
+      status: 'fail',
+      label: 'scripts/initializers/checkout.js missing',
+      fix: 'Expected stock Adobe checkout initializer. Are you in the storefront root?',
+    });
+  } else {
+    add({
+      id: 'checkout-loader',
+      status: 'fail',
+      label: "scripts/initializers/checkout.js missing import './recurbuy.js'",
+      fix: 'Run: npx recurbuy-eds upgrade. If the suite patch fails, add manually: import \'./recurbuy.js\';',
     });
   }
 
@@ -422,6 +467,29 @@ export async function runDoctor(options) {
           label: `live subscriptions page not published (${page.status || 'error'})`,
           fix: `Run: npx recurbuy-eds publish-content --org=${site.org} --repo=${site.repo} --branch=${site.branch}\n`
             + `      Expected: ${pageUrls.liveUrl}`,
+        });
+      }
+
+      const detailUrls = publicUrls({
+        org: site.org,
+        repo: site.repo,
+        branch: site.branch,
+        pathWithoutHtml: 'customer/subscriptions/detail',
+      });
+      const detailPage = await fetchPublic(detailUrls.liveUrl);
+      if (detailPage.ok) {
+        add({
+          id: 'content-detail',
+          status: 'ok',
+          label: `live detail scaffold ${detailUrls.liveUrl}`,
+        });
+      } else {
+        add({
+          id: 'content-detail',
+          status: 'warn',
+          label: `live subscription detail page not published (${detailPage.status || 'error'})`,
+          fix: `Re-run publish-content after upgrading the RecurBuy package (uploads detail/edit scaffolds).\n`
+            + `      Expected: ${detailUrls.liveUrl}`,
         });
       }
 

@@ -74,16 +74,28 @@ export function runUninstall(options) {
     if (cartChanged && !dryRun) writeText(cartInitPath, cartInit);
   }
 
+  const checkoutInitPath = resolvePath(cwd, 'scripts', 'initializers', 'checkout.js');
+  if (fs.existsSync(checkoutInitPath)) {
+    let checkoutInit = readText(checkoutInitPath);
+    if (checkoutInit.includes("import './recurbuy.js';")) {
+      checkoutInit = checkoutInit.replace(/^[ \t]*import '\.\/recurbuy\.js';[ \t]*\n/m, '');
+      report.push("scripts/initializers/checkout.js: remove import './recurbuy.js'");
+      if (!dryRun) writeText(checkoutInitPath, checkoutInit);
+    }
+  }
+
   if (removeFiles) {
     const initializerPath = resolvePath(cwd, 'scripts', 'initializers', 'recurbuy.js');
     if (fs.existsSync(initializerPath)) {
       report.push('delete scripts/initializers/recurbuy.js');
       if (!dryRun) fs.unlinkSync(initializerPath);
     }
-    const blockPath = resolvePath(cwd, 'blocks', 'commerce-subscriptions');
-    if (fs.existsSync(blockPath)) {
-      report.push('delete blocks/commerce-subscriptions');
-      if (!dryRun) fs.rmSync(blockPath, { recursive: true, force: true });
+    for (const name of ['commerce-subscriptions', 'commerce-subscription-account']) {
+      const blockPath = resolvePath(cwd, 'blocks', name);
+      if (fs.existsSync(blockPath)) {
+        report.push(`delete blocks/${name}`);
+        if (!dryRun) fs.rmSync(blockPath, { recursive: true, force: true });
+      }
     }
     const dropinPath = resolvePath(cwd, 'scripts', '__dropins__', 'storefront-recurbuy');
     if (fs.existsSync(dropinPath)) {

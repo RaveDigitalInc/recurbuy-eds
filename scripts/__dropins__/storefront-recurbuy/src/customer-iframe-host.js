@@ -8,7 +8,6 @@ import {
   customerEmbedUrl,
   customerPanelOrigin,
 } from './customer-iframe-protocol.js';
-import { collectHostTheme } from './customer-theme.js';
 
 const MIN_FRAME_HEIGHT_PX = 240;
 
@@ -93,7 +92,6 @@ export function mountCustomerIframe(rootEl, options = {}) {
       connectionToken,
       customerToken,
       page,
-      theme: collectHostTheme(),
     }, panelOrigin);
     handshakeDone = true;
   }
