@@ -2,6 +2,7 @@ import { initializers } from '@dropins/tools/initializer.js';
 import { initialize, setEndpoint } from '@dropins/storefront-checkout/api.js';
 import { initializeDropin } from './index.js';
 import { CORE_FETCH_GRAPHQL, fetchPlaceholders } from '../commerce.js';
+import './recurbuy.js';
 
 await initializeDropin(async () => {
   // Set Fetch GraphQL (Core)
