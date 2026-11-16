@@ -33,7 +33,7 @@ export default async function decorate(block) {
       menuItemEl.setAttribute('aria-current', 'page');
     }
 
-    const iconEl = createMenuItemIcon(itemConfig.itemIcon);
+    const iconEl = createMenuItemIcon(resolveSidebarIcon(itemConfig.itemIcon, itemConfig.itemLink));
     const contentEl = createMenuItemContent(itemConfig.itemTitle, itemConfig.itemSubtitle);
     const arrowEl = createMenuItemArrow();
 
@@ -48,6 +48,29 @@ export default async function decorate(block) {
   sidebarItems.forEach((el) => {
     block.appendChild(el);
   });
+}
+
+/** Names exported by the account Icon set. PendingPayment is not one of them. */
+const SIDEBAR_ICONS = new Set([
+  'Add', 'AddressBook', 'Bulk', 'Burger', 'Business', 'Card', 'Cart', 'Check',
+  'CheckWithCircle', 'ChevronDown', 'ChevronRight', 'ChevronUp', 'Close', 'Coupon',
+  'Date', 'Delivery', 'Edit', 'EmptyBox', 'Eye', 'EyeClose', 'Gift', 'GiftCard',
+  'Heart', 'HeartFilled', 'InfoFilled', 'List', 'Locker', 'Minus', 'Order',
+  'OrderError', 'OrderSuccess', 'PaymentError', 'Placeholder', 'PlaceholderFilled',
+  'Purchase', 'Quote', 'Search', 'SearchFilled', 'Sort', 'Star', 'Structure',
+  'Team', 'Trash', 'User', 'View', 'Wallet', 'Warning', 'WarningFilled',
+  'WarningWithCircle',
+]);
+
+/**
+ * @param {string} iconSource
+ * @param {string} itemLink
+ * @returns {string}
+ */
+function resolveSidebarIcon(iconSource, itemLink) {
+  if (SIDEBAR_ICONS.has(iconSource)) return iconSource;
+  if (String(itemLink).includes('/customer/subscriptions')) return 'Delivery';
+  return 'Placeholder';
 }
 
 function createMenuItemIcon(iconSource) {
