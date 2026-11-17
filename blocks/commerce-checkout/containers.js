@@ -41,6 +41,7 @@ import { render as CartProvider } from '@dropins/storefront-cart/render.js';
 // Payment Services Dropin
 import { PaymentMethodCode } from '@dropins/storefront-payment-services/api.js';
 import CreditCard from '@dropins/storefront-payment-services/containers/CreditCard.js';
+import VaultedCreditCard from '@dropins/storefront-payment-services/containers/VaultedCreditCard.js';
 import { render as PaymentServices } from '@dropins/storefront-payment-services/render.js';
 
 // Tools
@@ -364,11 +365,22 @@ export const renderPaymentMethods = async (container) => renderContainer(
         [PaymentMethodCode.GOOGLE_PAY]: {
           enabled: false,
         },
-        [PaymentMethodCode.VAULT]: {
-          enabled: false,
-        },
         [PaymentMethodCode.FASTLANE]: {
           enabled: false,
+        },
+      },
+      StoredMethods: {
+        [PaymentMethodCode.VAULT]: {
+          tokenCode: PaymentMethodCode.CREDIT_CARD,
+          render: (ctx) => {
+            const $vaultedCard = document.createElement('div');
+
+            PaymentServices.render(VaultedCreditCard, {
+              tokenDetails: ctx.details,
+            })($vaultedCard);
+
+            ctx.replaceHTML($vaultedCard);
+          },
         },
       },
     },
